@@ -5,6 +5,7 @@
 - Use `uv` to run Python: `uv run generate.py`
 - Build: `./build.sh`
 - Dev server: `./dev.sh`
+- Publish: `./publish.sh "commit message"` (rebuilds, commits, pushes; deploys via GitHub Pages)
 
 ## Important
 
