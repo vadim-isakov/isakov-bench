@@ -333,12 +333,20 @@ def generate_html(data, prompts_map):
       <div class="filter-list" id="promptFilters"></div>
     </div>
     <div class="filter-group">
-      <h3>Agents / Models</h3>
+      <h3>Agents</h3>
       <div class="filter-actions">
         <button onclick="toggleAllFilters('agent', true)">All</button>
         <button onclick="toggleAllFilters('agent', false)">None</button>
       </div>
       <div class="filter-list" id="agentFilters"></div>
+    </div>
+    <div class="filter-group">
+      <h3>Models</h3>
+      <div class="filter-actions">
+        <button onclick="toggleAllFilters('model', true)">All</button>
+        <button onclick="toggleAllFilters('model', false)">None</button>
+      </div>
+      <div class="filter-list" id="modelFilters"></div>
     </div>
   </div>
 
@@ -369,6 +377,7 @@ const DATA = {data_json};
 const PROMPTS = {prompts_json};
 const activePrompts = new Set();
 const activeAgents = new Set();
+const activeModels = new Set();
 
 function titleCase(s) {{
   return s.replace(/(^|[\\s-])(\\w)/g, (_, sep, c) => sep + c.toUpperCase());
@@ -657,16 +666,34 @@ document.getElementById('filterToggle').addEventListener('click', () => {{
   btn.innerHTML = panel.classList.contains('open') ? '&#x25B2; Filters' : '&#x25BC; Filters';
 }});
 
+function getAllAgentNames() {{
+  const s = new Set();
+  for (const r of DATA.results) s.add(r.agent);
+  return [...s].sort();
+}}
+
+function getAllModelNames() {{
+  const s = new Set();
+  for (const r of DATA.results) s.add(r.model);
+  return [...s].sort();
+}}
+
+function isColumnVisible(col) {{
+  const [agent, model] = col.split('--');
+  return activeAgents.has(agent) && activeModels.has(model);
+}}
+
 function buildFilterChips() {{
   const promptContainer = document.getElementById('promptFilters');
   const agentContainer = document.getElementById('agentFilters');
+  const modelContainer = document.getElementById('modelFilters');
 
   activePrompts.clear();
   activeAgents.clear();
+  activeModels.clear();
   DATA.prompts.forEach(p => activePrompts.add(p));
-
-  const {{ columns, modelGroups }} = getGroupedColumns();
-  columns.forEach(c => activeAgents.add(c));
+  getAllAgentNames().forEach(a => activeAgents.add(a));
+  getAllModelNames().forEach(m => activeModels.add(m));
 
   loadFilters();
 
@@ -681,43 +708,66 @@ function buildFilterChips() {{
   }});
 
   agentContainer.innerHTML = '';
-  let colOffset = 0;
-  for (const g of modelGroups) {{
-    const groupLabel = document.createElement('div');
-    groupLabel.style.cssText = 'width:100%; font-size:0.72rem; color:#555; text-transform:uppercase; letter-spacing:0.04em; margin-top:8px; margin-bottom:2px;';
-    groupLabel.textContent = titleCase(g.model);
-    agentContainer.appendChild(groupLabel);
-    for (let j = 0; j < g.count; j++) {{
-      const col = columns[colOffset + j];
-      const agent = col.split('--')[0];
-      const on = activeAgents.has(col);
-      const chip = document.createElement('label');
-      chip.className = 'filter-chip' + (on ? ' active' : '');
-      chip.innerHTML = '<input type="checkbox"' + (on ? ' checked' : '') + ' data-filter="agent" data-value="' + col + '"> ' + titleCase(agent);
-      chip.querySelector('input').addEventListener('change', onFilterChange);
-      agentContainer.appendChild(chip);
-    }}
-    colOffset += g.count;
-  }}
+  getAllAgentNames().forEach(a => {{
+    const on = activeAgents.has(a);
+    const chip = document.createElement('label');
+    chip.className = 'filter-chip' + (on ? ' active' : '');
+    chip.innerHTML = '<input type="checkbox"' + (on ? ' checked' : '') + ' data-filter="agent" data-value="' + a + '"> ' + titleCase(a);
+    chip.querySelector('input').addEventListener('change', onFilterChange);
+    agentContainer.appendChild(chip);
+  }});
+
+  modelContainer.innerHTML = '';
+  getAllModelNames().forEach(m => {{
+    const on = activeModels.has(m);
+    const chip = document.createElement('label');
+    chip.className = 'filter-chip' + (on ? ' active' : '');
+    chip.innerHTML = '<input type="checkbox"' + (on ? ' checked' : '') + ' data-filter="model" data-value="' + m + '"> ' + titleCase(m);
+    chip.querySelector('input').addEventListener('change', onFilterChange);
+    modelContainer.appendChild(chip);
+  }});
 }}
 
 function saveFilters() {{
-  localStorage.setItem('isakov-bench-prompts', JSON.stringify([...activePrompts]));
-  localStorage.setItem('isakov-bench-agents', JSON.stringify([...activeAgents]));
+  const allPrompts = new Set(DATA.prompts);
+  const allAgents = new Set(getAllAgentNames());
+  const allModels = new Set(getAllModelNames());
+  const disabledPrompts = [...allPrompts].filter(p => !activePrompts.has(p));
+  const disabledAgents = [...allAgents].filter(a => !activeAgents.has(a));
+  const disabledModels = [...allModels].filter(m => !activeModels.has(m));
+  localStorage.setItem('isakov-bench-disabled-prompts', JSON.stringify(disabledPrompts));
+  localStorage.setItem('isakov-bench-disabled-agents', JSON.stringify(disabledAgents));
+  localStorage.setItem('isakov-bench-disabled-models', JSON.stringify(disabledModels));
 }}
 
 function loadFilters() {{
   try {{
-    const p = JSON.parse(localStorage.getItem('isakov-bench-prompts'));
-    const a = JSON.parse(localStorage.getItem('isakov-bench-agents'));
-    if (p) {{ activePrompts.clear(); p.forEach(v => activePrompts.add(v)); }}
-    if (a) {{ activeAgents.clear(); a.forEach(v => activeAgents.add(v)); }}
+    localStorage.removeItem('isakov-bench-prompts');
+    localStorage.removeItem('isakov-bench-agents');
+    const dp = JSON.parse(localStorage.getItem('isakov-bench-disabled-prompts'));
+    const da = JSON.parse(localStorage.getItem('isakov-bench-disabled-agents'));
+    const dm = JSON.parse(localStorage.getItem('isakov-bench-disabled-models'));
+    if (dp) dp.forEach(v => activePrompts.delete(v));
+    if (da) da.forEach(v => activeAgents.delete(v));
+    if (dm) dm.forEach(v => activeModels.delete(v));
   }} catch(e) {{}}
+}}
+
+function getFilterSet(type) {{
+  if (type === 'prompt') return activePrompts;
+  if (type === 'agent') return activeAgents;
+  return activeModels;
+}}
+
+function getFilterContainerId(type) {{
+  if (type === 'prompt') return 'promptFilters';
+  if (type === 'agent') return 'agentFilters';
+  return 'modelFilters';
 }}
 
 function onFilterChange(e) {{
   const input = e.target;
-  const set = input.dataset.filter === 'prompt' ? activePrompts : activeAgents;
+  const set = getFilterSet(input.dataset.filter);
   const chip = input.closest('.filter-chip');
   if (input.checked) {{
     set.add(input.dataset.value);
@@ -731,8 +781,8 @@ function onFilterChange(e) {{
 }}
 
 function toggleAllFilters(type, on) {{
-  const containerId = type === 'prompt' ? 'promptFilters' : 'agentFilters';
-  const set = type === 'prompt' ? activePrompts : activeAgents;
+  const containerId = getFilterContainerId(type);
+  const set = getFilterSet(type);
   document.querySelectorAll('#' + containerId + ' input').forEach(input => {{
     input.checked = on;
     const chip = input.closest('.filter-chip');
@@ -754,9 +804,32 @@ function applyFilters() {{
 
   const {{ columns, modelGroups }} = getGroupedColumns();
 
+  const lookup = {{}};
+  for (const prompt of DATA.prompts) {{
+    lookup[prompt] = {{}};
+    for (const col of columns) lookup[prompt][col] = false;
+  }}
+  for (const r of DATA.results) {{
+    const key = resultKey(r);
+    if (lookup[r.prompt] && lookup[r.prompt][key] !== undefined) {{
+      lookup[r.prompt][key] = true;
+    }}
+  }}
+
+  const colHasVisibleData = {{}};
+  for (const col of columns) {{
+    colHasVisibleData[col] = false;
+    for (const prompt of DATA.prompts) {{
+      if (activePrompts.has(prompt) && lookup[prompt][col]) {{
+        colHasVisibleData[col] = true;
+        break;
+      }}
+    }}
+  }}
+
   const headerRow2 = table.querySelectorAll('thead tr:nth-child(2) th');
   columns.forEach((col, i) => {{
-    const visible = activeAgents.has(col);
+    const visible = isColumnVisible(col) && colHasVisibleData[col];
     if (headerRow2[i]) headerRow2[i].style.display = visible ? '' : 'none';
     table.querySelectorAll('tbody tr > :nth-child(' + (i + 2) + ')').forEach(cell => {{
       cell.style.display = visible ? '' : 'none';
@@ -769,7 +842,8 @@ function applyFilters() {{
   modelGroups.forEach((g, gi) => {{
     let visibleCount = 0;
     for (let j = 0; j < g.count; j++) {{
-      if (activeAgents.has(columns[colOffset + j])) visibleCount++;
+      const col = columns[colOffset + j];
+      if (isColumnVisible(col) && colHasVisibleData[col]) visibleCount++;
     }}
     modelHeaders[gi].style.display = visibleCount > 0 ? '' : 'none';
     modelHeaders[gi].colSpan = Math.max(visibleCount, 1);

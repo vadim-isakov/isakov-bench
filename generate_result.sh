@@ -34,6 +34,13 @@ else
   PROMPTS=("$@")
 fi
 
+METADATA_FILE="$SCRIPT_DIR/results/metadata.json"
+if [[ -f "$METADATA_FILE" ]]; then
+  METADATA=$(cat "$METADATA_FILE")
+else
+  METADATA="{}"
+fi
+
 for PROMPT in "${PROMPTS[@]}"; do
   PROMPT_FILE="$SCRIPT_DIR/prompts/${PROMPT}.txt"
   if [[ ! -f "$PROMPT_FILE" ]]; then
@@ -44,20 +51,31 @@ for PROMPT in "${PROMPTS[@]}"; do
   OUT="results/${PROMPT}/${AGENT}--${MODEL_SHORT}--${DATE}.html"
   echo "==> Generating ${OUT} with ${MODEL}..."
 
+  DURATION_TMP=$(mktemp)
+
   droid exec -m "$MODEL" --auto high \
     --disabled-tools "$DISABLED_TOOLS" \
     --output-format stream-json \
     "$(cat "$PROMPT_FILE")
 
 Save the HTML file to: ${OUT}" \
+    | tee >(jq -r 'select(.type == "completion") | .durationMs' > "$DURATION_TMP") \
     | jq -r '
       if .type == "tool_call" then "  > " + .toolName + " " + (.parameters.file_path // "")[:80]
       elif .type == "completion" then "  done (" + (.durationMs/1000|tostring) + "s)"
       elif .type == "message" and .role == "assistant" then "  " + .text[:120]
       else empty end'
 
+  DURATION_MS=$(cat "$DURATION_TMP" 2>/dev/null || echo "")
+  rm -f "$DURATION_TMP"
+
   if [[ -f "$SCRIPT_DIR/$OUT" ]]; then
     echo "  OK: $OUT"
+    if [[ -n "$DURATION_MS" ]]; then
+      METADATA=$(echo "$METADATA" | jq --arg key "$OUT" --argjson ms "$DURATION_MS" '. + {($key): {"durationMs": $ms}}')
+      echo "$METADATA" > "$METADATA_FILE"
+      echo "  Time: $(echo "$DURATION_MS" | jq '. / 1000')s (saved to metadata.json)"
+    fi
   else
     echo "  FAIL: $OUT not created" >&2
   fi
