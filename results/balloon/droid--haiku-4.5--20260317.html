@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Floating Hot Air Balloon</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+            background: linear-gradient(135deg, #ff9a56 0%, #ff6b35 25%, #f7931e 50%, #fdb833 75%, #fce38a 100%);
+            font-family: Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="scene"></canvas>
+    <div class="info">Watch the balloon drift across the sky...</div>
+
+    <script>
+        const canvas = document.getElementById('scene');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let time = 0;
+
+        // Particle system for flame bursts
+        class FlameParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 3;
+                this.vy = -Math.random() * 2 - 1;
+                this.life = 1;
+                this.maxLife = 0.6;
+                this.size = Math.random() * 8 + 4;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life -= 1 / 60;
+                this.vy -= 0.05;
+            }
+
+            draw(ctx) {
+                const alpha = Math.max(0, this.life / this.maxLife);
+                ctx.globalAlpha = alpha * 0.7;
+                ctx.fillStyle = this.life > 0.4 ? '#ff6b00' : '#ffcc00';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * (1 - (1 - alpha)), 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        let flameParticles = [];
+
+        function drawSky() {
+            // Already in body background, but we can enhance with subtle gradients
+            const sunGradient = ctx.createRadialGradient(
+                canvas.width * 0.8,
+                canvas.height * 0.2,
+                10,
+                canvas.width * 0.8,
+                canvas.height * 0.2,
+                300
+            );
+            sunGradient.addColorStop(0, 'rgba(255, 200, 100, 0.1)');
+            sunGradient.addColorStop(1, 'rgba(255, 150, 50, 0)');
+            ctx.fillStyle = sunGradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function drawClouds() {
+            const cloudX = (time * 15 + 100) % (canvas.width + 200) - 100;
+            const cloud1X = (time * 10 + 300) % (canvas.width + 200) - 100;
+            const cloud2X = (time * 8 + 600) % (canvas.width + 200) - 100;
+
+            ctx.globalAlpha = 0.7;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+
+            // Cloud function
+            const drawCloud = (x, y, scale) => {
+                ctx.beginPath();
+                ctx.arc(x, y, 40 * scale, 0, Math.PI * 2);
+                ctx.arc(x + 35 * scale, y, 50 * scale, 0, Math.PI * 2);
+                ctx.arc(x + 70 * scale, y, 40 * scale, 0, Math.PI * 2);
+                ctx.arc(x + 50 * scale, y - 30 * scale, 35 * scale, 0, Math.PI * 2);
+                ctx.fill();
+            };
+
+            drawCloud(cloudX, 100, 1);
+            drawCloud(cloud1X, 150, 1.2);
+            drawCloud(cloud2X, 80, 0.8);
+
+            ctx.globalAlpha = 1;
+        }
+
+        function drawBirds() {
+            const birdY1 = 200 + Math.sin(time * 0.5 + 1) * 20;
+            const birdY2 = 250 + Math.sin(time * 0.4 + 3) * 25;
+            const birdX1 = (time * 20 + 200) % (canvas.width + 100) - 50;
+            const birdX2 = (time * 15 + 500) % (canvas.width + 100) - 50;
+
+            ctx.globalAlpha = 0.6;
+            ctx.fillStyle = 'rgba(80, 80, 80, 0.6)';
+            ctx.font = 'bold 20px Arial';
+
+            // Simple bird representation
+            const drawBird = (x, y, scale) => {
+                ctx.save();
+                ctx.translate(x, y);
+                ctx.scale(scale, scale);
+                ctx.fillText('v', 0, 0);
+                ctx.restore();
+            };
+
+            drawBird(birdX1, birdY1, 1);
+            drawBird(birdX2, birdY2, 1.2);
+
+            ctx.globalAlpha = 1;
+        }
+
+        function drawMountains() {
+            // Background mountains (lighter)
+            ctx.fillStyle = 'rgba(200, 180, 150, 0.6)';
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height * 0.5);
+            for (let i = 0; i <= canvas.width; i += 50) {
+                const height = Math.sin(i * 0.005) * 80 + 150;
+                ctx.lineTo(i, canvas.height * 0.5 + height);
+            }
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.lineTo(0, canvas.height);
+            ctx.fill();
+
+            // Mid-ground mountains
+            ctx.fillStyle = 'rgba(160, 130, 100, 0.8)';
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height * 0.6);
+            for (let i = 0; i <= canvas.width; i += 40) {
+                const height = Math.sin(i * 0.008 + 2) * 100 + 120;
+                ctx.lineTo(i, canvas.height * 0.6 + height);
+            }
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.lineTo(0, canvas.height);
+            ctx.fill();
+
+            // Foreground mountains (darker)
+            ctx.fillStyle = 'rgba(100, 70, 50, 0.9)';
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height * 0.7);
+            for (let i = 0; i <= canvas.width; i += 35) {
+                const height = Math.sin(i * 0.01 + 1) * 120 + 100;
+                ctx.lineTo(i, canvas.height * 0.7 + height);
+            }
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.lineTo(0, canvas.height);
+            ctx.fill();
+        }
+
+        function drawBalloon() {
+            const balloonX = canvas.width / 2 + Math.sin(time * 0.3) * 100;
+            const balloonY = canvas.height * 0.25 + Math.cos(time * 0.2) * 30;
+
+            // Balloon envelope with stripes
+            const envelopeRadius = 60;
+            const stripWidth = 8;
+            const colors = ['#ff3333', '#ff9933', '#ffff33', '#33ff33', '#3333ff', '#ff33ff'];
+
+            // Draw stripes (vertical segments)
+            for (let i = 0; i < 6; i++) {
+                ctx.fillStyle = colors[i % colors.length];
+                ctx.beginPath();
+                const startAngle = (i / 6) * Math.PI * 2;
+                const endAngle = ((i + 0.9) / 6) * Math.PI * 2;
+                ctx.arc(balloonX, balloonY, envelopeRadius, startAngle, endAngle);
+                ctx.lineTo(balloonX + Math.cos(endAngle) * envelopeRadius, balloonY + Math.sin(endAngle) * envelopeRadius);
+                ctx.lineTo(balloonX + Math.cos(startAngle) * envelopeRadius, balloonY + Math.sin(startAngle) * envelopeRadius);
+                ctx.fill();
+            }
+
+            // Balloon outline
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(balloonX, balloonY, envelopeRadius, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Add some gradient to balloon for depth
+            const balloonGradient = ctx.createRadialGradient(
+                balloonX - 20, balloonY - 20, 0,
+                balloonX, balloonY, envelopeRadius
+            );
+            balloonGradient.addColorStop(0, 'rgba(255, 255, 255, 0.2)');
+            balloonGradient.addColorStop(1, 'rgba(0, 0, 0, 0.05)');
+            ctx.fillStyle = balloonGradient;
+            ctx.beginPath();
+            ctx.arc(balloonX, balloonY, envelopeRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Ropes from balloon to basket
+            ctx.strokeStyle = 'rgba(100, 80, 60, 0.8)';
+            ctx.lineWidth = 2;
+            const basketX = balloonX;
+            const basketY = balloonY + envelopeRadius + 80;
+
+            for (let i = -1; i <= 1; i += 0.5) {
+                ctx.beginPath();
+                ctx.moveTo(balloonX + i * 35, balloonY + envelopeRadius - 10);
+                ctx.lineTo(basketX + i * 25, basketY - 20);
+                ctx.stroke();
+            }
+
+            // Basket
+            const basketWidth = 40;
+            const basketHeight = 25;
+            ctx.fillStyle = 'rgba(150, 100, 50, 0.95)';
+            ctx.fillRect(basketX - basketWidth / 2, basketY - basketHeight, basketWidth, basketHeight);
+
+            // Basket weave pattern
+            ctx.strokeStyle = 'rgba(100, 60, 30, 0.6)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 4; i++) {
+                ctx.beginPath();
+                ctx.moveTo(basketX - basketWidth / 2 + i * 13, basketY - basketHeight);
+                ctx.lineTo(basketX - basketWidth / 2 + i * 13, basketY);
+                ctx.stroke();
+            }
+            for (let i = 0; i < 3; i++) {
+                ctx.beginPath();
+                ctx.moveTo(basketX - basketWidth / 2, basketY - basketHeight + i * 8);
+                ctx.lineTo(basketX + basketWidth / 2, basketY - basketHeight + i * 8);
+                ctx.stroke();
+            }
+
+            // Flame bursts
+            if (Math.floor(time * 2) % 10 < 3) {
+                const flameX = balloonX;
+                const flameY = balloonY + envelopeRadius - 20;
+
+                // Add particles
+                for (let i = 0; i < 3; i++) {
+                    flameParticles.push(new FlameParticle(flameX, flameY));
+                }
+
+                // Draw flame
+                ctx.fillStyle = 'rgba(255, 150, 0, 0.8)';
+                ctx.beginPath();
+                ctx.arc(flameX - 15, flameY, 12, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = 'rgba(255, 200, 0, 0.9)';
+                ctx.beginPath();
+                ctx.arc(flameX + 15, flameY, 12, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = 'rgba(255, 100, 0, 0.7)';
+                ctx.beginPath();
+                ctx.arc(flameX, flameY - 5, 10, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Draw glow from hot air
+            const glowGradient = ctx.createRadialGradient(
+                balloonX, balloonY + envelopeRadius, 0,
+                balloonX, balloonY + envelopeRadius, 100
+            );
+            glowGradient.addColorStop(0, 'rgba(255, 150, 0, 0.1)');
+            glowGradient.addColorStop(1, 'rgba(255, 100, 0, 0)');
+            ctx.fillStyle = glowGradient;
+            ctx.fillRect(balloonX - 100, balloonY + envelopeRadius - 100, 200, 200);
+        }
+
+        function updateFlameParticles() {
+            for (let i = flameParticles.length - 1; i >= 0; i--) {
+                flameParticles[i].update();
+                if (flameParticles[i].life <= 0) {
+                    flameParticles.splice(i, 1);
+                }
+            }
+
+            for (let particle of flameParticles) {
+                particle.draw(ctx);
+            }
+        }
+
+        function animate() {
+            // Clear canvas with gradient background
+            const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            skyGradient.addColorStop(0, '#ff9a56');
+            skyGradient.addColorStop(0.3, '#ff6b35');
+            skyGradient.addColorStop(0.6, '#fce38a');
+            skyGradient.addColorStop(1, '#fce38a');
+            ctx.fillStyle = skyGradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            drawSky();
+            drawMountains();
+            drawClouds();
+            drawBirds();
+            drawBalloon();
+            updateFlameParticles();
+
+            time += 1 / 60;
+            requestAnimationFrame(animate);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+
+        animate();
+    </script>
+</body>
+</html>

@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hot air balloon at dawn</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #1a0a12;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      vertical-align: top;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="scene" aria-label="Animated hot air balloon over mountains"></canvas>
+  <script>
+(function () {
+  const canvas = document.getElementById('scene');
+  const ctx = canvas.getContext('2d');
+
+  let W = 0;
+  let H = 0;
+  let DPR = 1;
+  let lastFrame = performance.now();
+  const startTime = performance.now();
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // --- Sky gradient (warm sunrise) ---
+  function drawSky() {
+    const g = ctx.createLinearGradient(0, 0, 0, H * 0.55);
+    g.addColorStop(0, '#3d1f4a');
+    g.addColorStop(0.15, '#7a3d5c');
+    g.addColorStop(0.35, '#c76b4a');
+    g.addColorStop(0.55, '#e8a070');
+    g.addColorStop(0.75, '#ffd4a8');
+    g.addColorStop(1, '#ffe8d4');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    // Soft sun glow
+    const cx = W * 0.72;
+    const cy = H * 0.38;
+    const sunR = Math.min(W, H) * 0.18;
+    const sg = ctx.createRadialGradient(cx, cy, 0, cx, cy, sunR * 2.2);
+    sg.addColorStop(0, 'rgba(255, 220, 160, 0.95)');
+    sg.addColorStop(0.35, 'rgba(255, 180, 120, 0.35)');
+    sg.addColorStop(1, 'rgba(255, 160, 100, 0)');
+    ctx.fillStyle = sg;
+    ctx.beginPath();
+    ctx.arc(cx, cy, sunR * 2.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255, 245, 200, 0.9)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, sunR * 0.55, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // --- Parallax mountains (4 layers: back light → front dark) ---
+  const mountainColors = [
+    { fill: '#9a7a8e', amp: 0.06, freq: 0.002, speed: 0.012, yBase: 0.58 },
+    { fill: '#6d4f63', amp: 0.08, freq: 0.0025, speed: 0.018, yBase: 0.62 },
+    { fill: '#4a3548', amp: 0.1, freq: 0.003, speed: 0.028, yBase: 0.68 },
+    { fill: '#2d1f2e', amp: 0.12, freq: 0.0035, speed: 0.042, yBase: 0.74 },
+  ];
+
+  function mountainY(layer, x, scroll) {
+    const m = mountainColors[layer];
+    const nx = x * m.freq + scroll * m.speed;
+    let y = 0;
+    y += Math.sin(nx * 1.7) * 0.5;
+    y += Math.sin(nx * 0.8 + 2) * 0.35;
+    y += Math.sin(nx * 3.1 + 1) * 0.15;
+    return H * m.yBase + y * H * m.amp;
+  }
+
+  function drawMountains(scroll) {
+    for (let layer = 0; layer < 4; layer++) {
+      const m = mountainColors[layer];
+      ctx.beginPath();
+      ctx.moveTo(0, H + 2);
+      const step = 4;
+      for (let x = 0; x <= W + step; x += step) {
+        ctx.lineTo(x, mountainY(layer, x, scroll));
+      }
+      ctx.lineTo(W + 2, H + 2);
+      ctx.closePath();
+      ctx.fillStyle = m.fill;
+      ctx.fill();
+    }
+  }
+
+  // --- Clouds ---
+  const clouds = [];
+  function initClouds() {
+    clouds.length = 0;
+    for (let i = 0; i < 14; i++) {
+      clouds.push({
+        x: Math.random() * W * 1.4 - W * 0.2,
+        y: Math.random() * H * 0.42 + H * 0.02,
+        s: 0.5 + Math.random() * 0.85,
+        speed: 0.15 + Math.random() * 0.35,
+        puff: 0.6 + Math.random() * 0.4,
+      });
+    }
+  }
+  initClouds();
+
+  function drawCloud(c) {
+    const base = H * 0.015 * c.s;
+    ctx.save();
+    ctx.globalAlpha = 0.45 + c.puff * 0.2;
+    ctx.fillStyle = 'rgba(255, 248, 240, 0.85)';
+    const blobs = [
+      { dx: 0, dy: 0, r: 1 },
+      { dx: 0.9, dy: -0.15, r: 0.75 },
+      { dx: -0.85, dy: 0.1, r: 0.7 },
+      { dx: 1.6, dy: 0.05, r: 0.55 },
+      { dx: -1.5, dy: 0.15, r: 0.5 },
+    ];
+    blobs.forEach(function (b) {
+      ctx.beginPath();
+      ctx.arc(c.x + b.dx * base * 5, c.y + b.dy * base * 3, base * 4 * b.r * c.puff, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+
+  function updateClouds(dt) {
+    clouds.forEach(function (c) {
+      c.x += c.speed * dt * 0.04;
+      if (c.x > W + 120) c.x = -180 - Math.random() * 100;
+    });
+  }
+
+  // --- Birds (distant V shapes) ---
+  const birds = [];
+  for (let i = 0; i < 18; i++) {
+    birds.push({
+      x: Math.random() * W,
+      y: Math.random() * H * 0.35 + H * 0.08,
+      vx: 40 + Math.random() * 50,
+      phase: Math.random() * Math.PI * 2,
+      wing: 2.5 + Math.random() * 2,
+      size: 0.6 + Math.random() * 0.5,
+    });
+  }
+
+  function drawBirds(timeMs) {
+    const t = timeMs * 0.001;
+    ctx.strokeStyle = 'rgba(45, 35, 55, 0.55)';
+    ctx.lineWidth = 1.2;
+    ctx.lineCap = 'round';
+    birds.forEach(function (b) {
+      const flap = Math.sin(t * 8 + b.phase) * b.wing;
+      const x = b.x;
+      const y = b.y;
+      const s = b.size;
+      ctx.beginPath();
+      ctx.moveTo(x - 5 * s, y + flap * 0.08);
+      ctx.lineTo(x, y - 1.2 * s);
+      ctx.lineTo(x + 5 * s, y + flap * 0.08);
+      ctx.stroke();
+    });
+  }
+
+  function updateBirds(dt, now) {
+    birds.forEach(function (b) {
+      b.x += b.vx * dt * 0.001;
+      b.y += Math.sin(now * 0.0003 + b.phase) * 0.015;
+      if (b.x > W + 30) {
+        b.x = -40 - Math.random() * 80;
+        b.y = Math.random() * H * 0.32 + H * 0.06;
+      }
+    });
+  }
+
+  // --- Balloon: stripes, bob, sway, flame burst ---
+  const stripeColors = ['#e84d6b', '#f4a742', '#f7e08a', '#5cb87a', '#4a9fd8', '#9b6bdb'];
+
+  function drawBalloonEnvelope(cx, cy, scale, rotation) {
+    const rw = 55 * scale;
+    const rh = 68 * scale;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rotation);
+
+    // Envelope silhouette (clip)
+    ctx.beginPath();
+    ctx.moveTo(0, -rh * 0.92);
+    ctx.bezierCurveTo(rw * 1.05, -rh * 0.5, rw * 1.05, rh * 0.35, 0, rh * 0.95);
+    ctx.bezierCurveTo(-rw * 1.05, rh * 0.35, -rw * 1.05, -rh * 0.5, 0, -rh * 0.92);
+    ctx.closePath();
+    ctx.clip();
+
+    // Stripes (vertical bands along balloon)
+    const bands = stripeColors.length;
+    for (let i = -bands; i <= bands; i++) {
+      const x0 = (i / bands) * rw * 2.2;
+      ctx.beginPath();
+      ctx.moveTo(x0 - rw * 0.35, -rh * 1.2);
+      ctx.lineTo(x0 + rw * 0.4, -rh * 1.2);
+      ctx.lineTo(x0 + rw * 0.15, rh * 1.2);
+      ctx.lineTo(x0 - rw * 0.55, rh * 1.2);
+      ctx.closePath();
+      ctx.fillStyle = stripeColors[((i % bands) + bands) % bands];
+      ctx.globalAlpha = 0.92;
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // Highlight edge
+    ctx.beginPath();
+    ctx.moveTo(0, -rh * 0.92);
+    ctx.bezierCurveTo(rw * 1.05, -rh * 0.5, rw * 1.05, rh * 0.35, 0, rh * 0.95);
+    ctx.bezierCurveTo(-rw * 1.05, rh * 0.35, -rw * 1.05, -rh * 0.5, 0, -rh * 0.92);
+    ctx.closePath();
+    const lg = ctx.createLinearGradient(-rw, 0, rw, 0);
+    lg.addColorStop(0, 'rgba(255,255,255,0.15)');
+    lg.addColorStop(0.45, 'rgba(255,255,255,0)');
+    lg.addColorStop(0.55, 'rgba(0,0,0,0.06)');
+    lg.addColorStop(1, 'rgba(0,0,0,0.12)');
+    ctx.fillStyle = lg;
+    ctx.fill();
+
+    ctx.restore();
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rotation);
+    ctx.strokeStyle = 'rgba(60, 45, 55, 0.35)';
+    ctx.lineWidth = 1.5 * scale;
+    ctx.beginPath();
+    ctx.moveTo(0, rh * 0.95);
+    ctx.lineTo(0, rh * 1.08);
+    ctx.stroke();
+    ctx.restore();
+
+    return { rw: rw, rh: rh };
+  }
+
+  function worldFromLocal(cx, cy, lx, ly, rot) {
+    const c = Math.cos(rot);
+    const s = Math.sin(rot);
+    return { x: cx + lx * c - ly * s, y: cy + lx * s + ly * c };
+  }
+
+  function drawBasket(cx, cy, scale, rotation, flameStrength, rw, rh) {
+    const bw = 22 * scale;
+    const bh = 16 * scale;
+    const attachL = worldFromLocal(cx, cy, -rw * 0.32, rh * 0.88, rotation);
+    const attachR = worldFromLocal(cx, cy, rw * 0.32, rh * 0.88, rotation);
+    const basketTop = worldFromLocal(cx, cy, 0, rh * 0.96 + 2 * scale, rotation);
+    const bx = basketTop.x;
+    const by = basketTop.y;
+
+    ctx.strokeStyle = 'rgba(55, 42, 48, 0.65)';
+    ctx.lineWidth = 1.2 * scale;
+    ctx.beginPath();
+    ctx.moveTo(attachL.x, attachL.y);
+    ctx.lineTo(bx - bw * 0.42, by);
+    ctx.moveTo(attachR.x, attachR.y);
+    ctx.lineTo(bx + bw * 0.42, by);
+    ctx.stroke();
+
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.rotate(rotation * 0.35);
+    ctx.fillStyle = '#5c4033';
+    ctx.strokeStyle = '#3d2a22';
+    ctx.lineWidth = 1 * scale;
+    ctx.beginPath();
+    ctx.roundRect(-bw / 2, 0, bw, bh, 3 * scale);
+    ctx.fill();
+    ctx.stroke();
+    // Flame
+    const fh = 8 + flameStrength * 22;
+    const fw = 5 + flameStrength * 6;
+    const fg = ctx.createLinearGradient(0, 0, 0, -fh);
+    fg.addColorStop(0, 'rgba(255, 200, 80, 0.95)');
+    fg.addColorStop(0.35, 'rgba(255, 120, 40, 0.85)');
+    fg.addColorStop(0.7, 'rgba(255, 80, 20, 0.4)');
+    fg.addColorStop(1, 'rgba(255, 60, 0, 0)');
+    ctx.fillStyle = fg;
+    ctx.beginPath();
+    ctx.moveTo(-fw * 0.4, 0);
+    ctx.quadraticCurveTo(0, -fh * 1.1, fw * 0.5, 0);
+    ctx.quadraticCurveTo(0, -fh * 0.35, -fw * 0.4, 0);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // roundRect fallback for older browsers
+  if (!CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+      const rr = Math.min(r, w / 2, h / 2);
+      this.moveTo(x + rr, y);
+      this.arcTo(x + w, y, x + w, y + h, rr);
+      this.arcTo(x + w, y + h, x, y + h, rr);
+      this.arcTo(x, y + h, x, y, rr);
+      this.arcTo(x, y, x + w, y, rr);
+      this.closePath();
+    };
+  }
+
+  let balloonX = 0;
+  let scrollRef = 0;
+  let lastBurst = -2500;
+  let burstUntil = 0;
+
+  function loop(now) {
+    const dt = Math.min(50, now - lastFrame);
+    lastFrame = now;
+    const time = (now - startTime) * 0.001;
+    const w = Math.max(W, 1);
+
+    drawSky();
+
+    // Gentle horizontal drift (loops) + slow lateral wander
+    const drift = (time * 28) % (w + 280);
+    balloonX = w * 0.22 + drift + Math.sin(time * 0.11) * w * 0.06;
+    scrollRef = balloonX * 0.55;
+
+    updateClouds(dt);
+    clouds.forEach(drawCloud);
+
+    drawMountains(scrollRef);
+
+    // Periodic flame burst (burner on)
+    if (now >= burstUntil && now - lastBurst > 2000 + Math.sin(time * 0.7) * 350) {
+      lastBurst = now;
+      burstUntil = now + 320 + Math.random() * 180;
+    }
+    const inBurst = now >= lastBurst && now < burstUntil;
+    const burstDur = Math.max(1, burstUntil - lastBurst);
+    const flameStrength = inBurst
+      ? Math.pow(Math.sin(((now - lastBurst) / burstDur) * Math.PI), 0.85)
+      : 0.07 + Math.sin(time * 2.8) * 0.05;
+
+    const bob = Math.sin(time * 1.35) * 11 + Math.sin(time * 0.68) * 5;
+    const sway = Math.sin(time * 0.88) * 0.085 + Math.sin(time * 0.41) * 0.038;
+    const by = H * 0.3 + bob;
+    const bx = balloonX;
+
+    updateBirds(dt, now);
+    drawBirds(now);
+
+    const scale = Math.min(W, H) * 0.00112;
+    const dims = drawBalloonEnvelope(bx, by, scale, sway);
+    drawBasket(bx, by, scale, sway, flameStrength, dims.rw, dims.rh);
+
+    requestAnimationFrame(loop);
+  }
+
+  requestAnimationFrame(loop);
+})();
+  </script>
+</body>
+</html>

@@ -1,0 +1,697 @@
+#!/usr/bin/env python3
+"""
+Static site generator for isakov-bench.
+Scans results/ and prompts/ directories, then produces a self-contained
+index.html with all data inlined (no server needed).
+"""
+
+import json
+import re
+import sys
+import html as html_mod
+from pathlib import Path
+
+BASE_DIR = Path(__file__).parent
+RESULTS_DIR = BASE_DIR / "results"
+PROMPTS_DIR = BASE_DIR / "prompts"
+SITE_DIR = BASE_DIR / "site"
+
+FILENAME_RE = re.compile(r"^(.+?)--(.+?)--(\d{8})\.html$")
+
+SITE_TITLE = "isakov-bench"
+SITE_DESCRIPTION = (
+    "Side-by-side visual benchmark comparing AI coding agents — "
+    "Droid, Claude Code, Cursor and more — on creative HTML/CSS/JS prompts."
+)
+SITE_URL = "https://isakov-bench.github.io"
+
+
+def scan_results():
+    prompts = sorted(d.name for d in RESULTS_DIR.iterdir() if d.is_dir())
+    agents_set = set()
+    results = []
+
+    for prompt in prompts:
+        prompt_dir = RESULTS_DIR / prompt
+        for f in sorted(prompt_dir.glob("*.html")):
+            m = FILENAME_RE.match(f.name)
+            if not m:
+                continue
+            agent, model, date = m.group(1), m.group(2), m.group(3)
+            agents_set.add(agent)
+            results.append({
+                "prompt": prompt,
+                "agent": agent,
+                "model": model,
+                "date": date,
+                "file": f.name,
+            })
+
+    return {
+        "prompts": prompts,
+        "agents": sorted(agents_set),
+        "results": results,
+    }
+
+
+def load_prompts():
+    prompts = {}
+    for f in sorted(PROMPTS_DIR.glob("*.txt")):
+        prompts[f.stem] = f.read_text()
+    return prompts
+
+
+def generate_html(data, prompts_map):
+    data_json = json.dumps(data, separators=(",", ":"))
+    prompts_json = json.dumps(prompts_map, separators=(",", ":"))
+
+    prompt_names = data["prompts"]
+    agent_models = set()
+    for r in data["results"]:
+        agent_models.add(f'{r["agent"]} {r["model"]}')
+    keywords = ", ".join(["AI benchmark", "coding agents", "HTML CSS JS"] +
+                         sorted(agent_models) + prompt_names)
+
+    return f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{SITE_TITLE} — AI Coding Agent Visual Benchmark</title>
+<meta name="description" content="{html_mod.escape(SITE_DESCRIPTION)}">
+<meta name="keywords" content="{html_mod.escape(keywords)}">
+<link rel="canonical" href="{SITE_URL}/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{SITE_TITLE} — AI Coding Agent Visual Benchmark">
+<meta property="og:description" content="{html_mod.escape(SITE_DESCRIPTION)}">
+<meta property="og:url" content="{SITE_URL}/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{SITE_TITLE}">
+<meta name="twitter:description" content="{html_mod.escape(SITE_DESCRIPTION)}">
+<meta name="robots" content="index, follow">
+<script type="application/ld+json">
+{{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "{SITE_TITLE}",
+  "description": "{SITE_DESCRIPTION}",
+  "url": "{SITE_URL}",
+  "applicationCategory": "DeveloperApplication"
+}}
+</script>
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #e0e0e0; }}
+
+  header {{
+    padding: 24px 32px 16px; border-bottom: 1px solid #1a1a1a;
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+  }}
+  header h1 {{ font-size: 1.4rem; font-weight: 600; color: #fff; letter-spacing: -0.02em; }}
+  header h1 a {{ color: inherit; text-decoration: none; }}
+  .header-controls {{ display: flex; align-items: center; gap: 12px; }}
+  .restart-all-btn, .filter-toggle-btn {{
+    padding: 6px 14px; font-size: 0.8rem; border: 1px solid #333; border-radius: 8px;
+    background: #1a1a1a; color: #888; cursor: pointer; transition: all 0.15s;
+  }}
+  .restart-all-btn:hover, .filter-toggle-btn:hover {{ border-color: #555; color: #ccc; }}
+  .filter-toggle-btn.active {{ border-color: #555; color: #ccc; background: #222; }}
+
+  .filter-panel {{
+    display: none; padding: 16px 32px; border-bottom: 1px solid #1a1a1a;
+    gap: 32px;
+  }}
+  .filter-panel.open {{ display: flex; }}
+  .filter-group {{ flex: 1; min-width: 200px; }}
+  .filter-group h3 {{
+    font-size: 0.75rem; font-weight: 500; color: #666; text-transform: uppercase;
+    letter-spacing: 0.05em; margin-bottom: 8px;
+  }}
+  .filter-group .filter-actions {{
+    display: flex; gap: 8px; margin-bottom: 8px;
+  }}
+  .filter-group .filter-actions button {{
+    font-size: 0.7rem; color: #555; background: none; border: none; cursor: pointer;
+    text-decoration: underline; padding: 0;
+  }}
+  .filter-group .filter-actions button:hover {{ color: #aaa; }}
+  .filter-list {{
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }}
+  .filter-chip {{
+    display: flex; align-items: center; gap: 5px; padding: 4px 10px;
+    font-size: 0.78rem; border: 1px solid #2a2a2a; border-radius: 6px;
+    background: #141414; color: #888; cursor: pointer; transition: all 0.15s;
+    user-select: none;
+  }}
+  .filter-chip:hover {{ border-color: #444; color: #bbb; }}
+  .filter-chip.active {{ border-color: #555; color: #ddd; background: #1e1e1e; }}
+  .filter-chip input {{ display: none; }}
+
+  .matrix-container {{ padding: 24px 32px; overflow-x: auto; }}
+  .matrix-container table {{
+    border-collapse: collapse; width: 100%; min-width: 600px;
+  }}
+  .matrix-container th, .matrix-container td {{
+    border: 1px solid #1e1e1e; padding: 8px; text-align: center; vertical-align: top;
+  }}
+  .matrix-container th {{
+    background: #141414; color: #aaa; font-size: 0.78rem; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.04em; position: sticky; z-index: 2;
+  }}
+  .matrix-container thead tr:first-child th {{ top: 0; }}
+  .matrix-container thead tr:nth-child(2) th {{ top: 30px; }}
+  .matrix-container th.model-group {{
+    border-bottom: 2px solid #333; color: #ccc; font-size: 0.82rem; font-weight: 600;
+  }}
+  .matrix-container th.row-header {{
+    text-align: left; min-width: 100px; position: sticky; left: 0; z-index: 3; background: #141414; top: 0;
+  }}
+  .matrix-container td.row-header {{
+    text-align: left; font-weight: 500; font-size: 0.85rem; color: #ccc;
+    background: #111; position: sticky; left: 0; z-index: 1;
+  }}
+  .cell-empty {{ color: #333; font-size: 0.75rem; }}
+  .cell-entry {{
+    cursor: pointer; transition: transform 0.15s; position: relative;
+  }}
+  .cell-entry:hover {{ transform: scale(1.02); }}
+  .cell-thumb {{
+    width: 100%; aspect-ratio: 4/3; border: 1px solid #2a2a2a; border-radius: 6px;
+    overflow: hidden; background: #fff; margin-bottom: 4px; position: relative;
+  }}
+  .cell-thumb iframe {{
+    width: 400%; height: 400%; border: none; pointer-events: none;
+    transform: scale(0.25); transform-origin: top left;
+  }}
+  .cell-date {{
+    font-size: 0.7rem; color: #666; margin-top: 2px;
+  }}
+  .cell-date-select {{
+    font-size: 0.7rem; color: #666; background: #141414; border: 1px solid #2a2a2a;
+    border-radius: 4px; padding: 2px 4px; cursor: pointer; outline: none;
+  }}
+  .cell-controls {{
+    display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 2px;
+  }}
+
+  .hidden {{ display: none !important; }}
+
+  .lightbox {{
+    position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.92);
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+  }}
+  .lightbox.open {{ display: flex; }}
+  .lightbox-bar {{
+    display: flex; align-items: center; gap: 16px; margin-bottom: 12px;
+  }}
+  .lightbox-title {{
+    color: #ccc; font-size: 0.9rem; text-align: center;
+  }}
+  .lightbox-date-select {{
+    padding: 4px 10px; font-size: 0.78rem; border: 1px solid #444; border-radius: 6px;
+    background: #222; color: #aaa; cursor: pointer; outline: none;
+  }}
+  .lightbox-restart {{
+    padding: 4px 12px; font-size: 0.78rem; border: 1px solid #444; border-radius: 6px;
+    background: #222; color: #aaa; cursor: pointer; transition: all 0.15s;
+  }}
+  .lightbox-restart:hover {{ border-color: #888; color: #fff; }}
+  .lightbox-close {{
+    position: absolute; top: 16px; right: 24px; font-size: 1.6rem; color: #888;
+    cursor: pointer; background: none; border: none; z-index: 101;
+  }}
+  .lightbox-close:hover {{ color: #fff; }}
+  .lightbox iframe {{
+    width: 90vw; height: 85vh; border: none; border-radius: 8px; background: #fff;
+  }}
+
+  .iframe-placeholder {{
+    width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+    color: #444; font-size: 0.8rem; background: #1a1a1a;
+  }}
+
+  .prompt-modal {{
+    position: fixed; inset: 0; z-index: 110; background: rgba(0,0,0,0.88);
+    display: none; align-items: center; justify-content: center;
+  }}
+  .prompt-modal.open {{ display: flex; }}
+  .prompt-modal-box {{
+    background: #161616; border: 1px solid #2a2a2a; border-radius: 12px;
+    max-width: 640px; width: 90vw; max-height: 80vh; display: flex; flex-direction: column;
+  }}
+  .prompt-modal-header {{
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px; border-bottom: 1px solid #222;
+  }}
+  .prompt-modal-header h2 {{
+    font-size: 0.95rem; font-weight: 600; color: #ddd;
+  }}
+  .prompt-modal-close {{
+    font-size: 1.3rem; color: #666; background: none; border: none; cursor: pointer;
+  }}
+  .prompt-modal-close:hover {{ color: #ccc; }}
+  .prompt-modal-body {{
+    padding: 20px; overflow-y: auto; font-size: 0.85rem; line-height: 1.6;
+    color: #bbb; white-space: pre-wrap; word-break: break-word;
+  }}
+
+  .prompt-link {{
+    color: #ccc; cursor: pointer; border-bottom: 1px dashed #444; transition: color 0.15s;
+  }}
+  .prompt-link:hover {{ color: #fff; border-bottom-color: #888; }}
+</style>
+</head>
+<body>
+  <header>
+    <h1><a href="/">{SITE_TITLE}</a></h1>
+    <div class="header-controls">
+      <button class="filter-toggle-btn" id="filterToggle">&#x25BC; Filters</button>
+      <button class="restart-all-btn" id="restartAll" title="Restart all animations">&#x21bb; Restart All</button>
+    </div>
+  </header>
+
+  <div class="filter-panel" id="filterPanel">
+    <div class="filter-group">
+      <h3>Prompts</h3>
+      <div class="filter-actions">
+        <button onclick="toggleAllFilters('prompt', true)">All</button>
+        <button onclick="toggleAllFilters('prompt', false)">None</button>
+      </div>
+      <div class="filter-list" id="promptFilters"></div>
+    </div>
+    <div class="filter-group">
+      <h3>Agents / Models</h3>
+      <div class="filter-actions">
+        <button onclick="toggleAllFilters('agent', true)">All</button>
+        <button onclick="toggleAllFilters('agent', false)">None</button>
+      </div>
+      <div class="filter-list" id="agentFilters"></div>
+    </div>
+  </div>
+
+  <main id="matrixView" class="matrix-container" role="main"></main>
+
+  <div class="lightbox" id="lightbox">
+    <button class="lightbox-close" id="lightboxClose">&times;</button>
+    <div class="lightbox-bar">
+      <div class="lightbox-title" id="lightboxTitle"></div>
+      <select class="lightbox-date-select hidden" id="lightboxDateSelect"></select>
+      <button class="lightbox-restart" id="lightboxRestart">&#x21bb; Restart</button>
+    </div>
+    <iframe id="lightboxFrame" sandbox="allow-scripts allow-same-origin"></iframe>
+  </div>
+
+  <div class="prompt-modal" id="promptModal">
+    <div class="prompt-modal-box">
+      <div class="prompt-modal-header">
+        <h2 id="promptModalTitle"></h2>
+        <button class="prompt-modal-close" id="promptModalClose">&times;</button>
+      </div>
+      <div class="prompt-modal-body" id="promptModalBody"></div>
+    </div>
+  </div>
+
+<script>
+const DATA = {data_json};
+const PROMPTS = {prompts_json};
+const activePrompts = new Set();
+const activeAgents = new Set();
+
+function titleCase(s) {{
+  return s.replace(/(^|[\\s-])(\\w)/g, (_, sep, c) => sep + c.toUpperCase());
+}}
+
+function friendlyName(agent, model) {{
+  return titleCase(model) + ' \\u2014 ' + titleCase(agent);
+}}
+
+function resultKey(r) {{ return r.agent + '--' + r.model; }}
+
+function formatDate(raw) {{
+  if (!raw || raw.length !== 8) return raw;
+  return raw.slice(0, 4) + '-' + raw.slice(4, 6) + '-' + raw.slice(6, 8);
+}}
+
+function restartIframe(iframe) {{
+  const src = iframe.src || iframe.dataset.src;
+  if (src) {{
+    iframe.src = '';
+    requestAnimationFrame(() => {{ iframe.src = src; }});
+  }}
+}}
+
+document.getElementById('restartAll').addEventListener('click', () => {{
+  document.getElementById('matrixView').querySelectorAll('iframe[src]').forEach(iframe => {{
+    if (iframe.src && iframe.src !== 'about:blank') restartIframe(iframe);
+  }});
+}});
+
+let lightboxPath = '';
+function openLightbox(path, title, prompt, agent) {{
+  lightboxPath = path;
+  const lb = document.getElementById('lightbox');
+  document.getElementById('lightboxFrame').src = 'results/' + path;
+  document.getElementById('lightboxTitle').textContent = title;
+
+  const dateSelect = document.getElementById('lightboxDateSelect');
+  dateSelect.innerHTML = '';
+  dateSelect.classList.add('hidden');
+  if (prompt && agent) {{
+    const siblings = DATA.results.filter(r => r.prompt === prompt && resultKey(r) === agent);
+    if (siblings.length > 1) {{
+      siblings.forEach(r => {{
+        const opt = document.createElement('option');
+        opt.value = r.prompt + '/' + r.file;
+        opt.textContent = formatDate(r.date);
+        if (r.prompt + '/' + r.file === path) opt.selected = true;
+        dateSelect.appendChild(opt);
+      }});
+      dateSelect.classList.remove('hidden');
+    }}
+  }}
+  lb.classList.add('open');
+}}
+function closeLightbox() {{
+  document.getElementById('lightbox').classList.remove('open');
+  document.getElementById('lightboxFrame').src = '';
+  document.getElementById('lightboxDateSelect').classList.add('hidden');
+  lightboxPath = '';
+}}
+document.getElementById('lightboxClose').onclick = closeLightbox;
+document.getElementById('lightbox').addEventListener('click', (e) => {{
+  if (e.target === e.currentTarget) closeLightbox();
+}});
+document.addEventListener('keydown', (e) => {{
+  if (e.key === 'Escape') {{ closeLightbox(); closePromptModal(); }}
+}});
+document.getElementById('lightboxRestart').addEventListener('click', () => {{
+  restartIframe(document.getElementById('lightboxFrame'));
+}});
+document.getElementById('lightboxDateSelect').addEventListener('change', (e) => {{
+  lightboxPath = e.target.value;
+  document.getElementById('lightboxFrame').src = 'results/' + lightboxPath;
+}});
+
+let observer = null;
+function setupLazyLoading() {{
+  if (observer) observer.disconnect();
+  observer = new IntersectionObserver((entries) => {{
+    entries.forEach(entry => {{
+      if (!entry.isIntersecting) return;
+      const thumb = entry.target;
+      if (thumb.querySelector('iframe')) return;
+      const src = thumb.dataset.src;
+      if (!src) return;
+      const iframe = document.createElement('iframe');
+      iframe.sandbox = 'allow-scripts allow-same-origin';
+      iframe.src = src;
+      const placeholder = thumb.querySelector('.iframe-placeholder');
+      if (placeholder) placeholder.remove();
+      thumb.appendChild(iframe);
+    }});
+  }}, {{ rootMargin: '200px' }});
+  document.querySelectorAll('.cell-thumb').forEach(el => observer.observe(el));
+}}
+
+function getGroupedColumns() {{
+  const colSet = new Set();
+  for (const r of DATA.results) colSet.add(resultKey(r));
+  const allCols = [...colSet].sort();
+
+  const modelMap = {{}};
+  for (const col of allCols) {{
+    const model = col.split('--')[1];
+    if (!modelMap[model]) modelMap[model] = [];
+    modelMap[model].push(col);
+  }}
+  const modelOrder = Object.keys(modelMap).sort();
+  const columns = [];
+  const modelGroups = [];
+  for (const model of modelOrder) {{
+    const cols = modelMap[model].sort();
+    modelGroups.push({{ model, count: cols.length }});
+    columns.push(...cols);
+  }}
+  return {{ columns, modelGroups }};
+}}
+
+function renderMatrix() {{
+  const container = document.getElementById('matrixView');
+  const {{ prompts, results }} = DATA;
+
+  const {{ columns, modelGroups }} = getGroupedColumns();
+
+  const lookup = {{}};
+  for (const prompt of prompts) {{
+    lookup[prompt] = {{}};
+    for (const col of columns) lookup[prompt][col] = [];
+  }}
+  for (const r of results) {{
+    const key = resultKey(r);
+    if (lookup[r.prompt] && lookup[r.prompt][key] !== undefined) {{
+      lookup[r.prompt][key].push(r);
+    }}
+  }}
+
+  let html = '<table><thead><tr><th class="row-header" rowspan="2">Prompt</th>';
+  for (const g of modelGroups) {{
+    html += '<th class="model-group" colspan="' + g.count + '">' + titleCase(g.model) + '</th>';
+  }}
+  html += '</tr><tr>';
+  for (const col of columns) {{
+    const agent = col.split('--')[0];
+    html += '<th>' + titleCase(agent) + '</th>';
+  }}
+  html += '</tr></thead><tbody>';
+
+  for (const prompt of prompts) {{
+    html += '<tr><td class="row-header"><span class="prompt-link" data-prompt="' + prompt + '">' + prompt + '</span></td>';
+    for (const col of columns) {{
+      const entries = lookup[prompt][col];
+      if (entries.length === 0) {{
+        html += '<td><span class="cell-empty">&mdash;</span></td>';
+      }} else {{
+        const latest = entries[entries.length - 1];
+        const path = prompt + '/' + latest.file;
+        const label = friendlyName(latest.agent, latest.model);
+        html += '<td><div class="cell-entry" data-path="' + path + '" data-title="' + label + ' / ' + prompt + '" data-prompt="' + prompt + '" data-agent="' + resultKey(latest) + '">';
+        html += '<div class="cell-thumb" data-src="results/' + path + '"><div class="iframe-placeholder">Loading...</div></div>';
+        html += '<div class="cell-controls">';
+        if (entries.length === 1) {{
+          html += '<span class="cell-date">' + formatDate(latest.date) + '</span>';
+        }} else {{
+          html += '<select class="cell-date-select" data-prompt="' + prompt + '" data-agent="' + resultKey(latest) + '">';
+          entries.forEach((e, i) => {{
+            const sel = i === entries.length - 1 ? ' selected' : '';
+            html += '<option value="' + prompt + '/' + e.file + '"' + sel + '>' + formatDate(e.date) + '</option>';
+          }});
+          html += '</select>';
+        }}
+        html += '</div></div></td>';
+      }}
+    }}
+    html += '</tr>';
+  }}
+  html += '</tbody></table>';
+  container.innerHTML = html;
+
+  container.querySelectorAll('.cell-entry').forEach(el => {{
+    el.addEventListener('click', (e) => {{
+      if (e.target.tagName === 'SELECT' || e.target.tagName === 'OPTION') return;
+      const select = el.querySelector('.cell-date-select');
+      const path = select ? select.value : el.dataset.path;
+      openLightbox(path, el.dataset.title, el.dataset.prompt, el.dataset.agent);
+    }});
+  }});
+
+  container.querySelectorAll('.prompt-link').forEach(el => {{
+    el.addEventListener('click', () => openPromptModal(el.dataset.prompt));
+  }});
+
+  container.querySelectorAll('.cell-date-select').forEach(sel => {{
+    sel.addEventListener('change', () => {{
+      const entry = sel.closest('.cell-entry');
+      const thumb = entry.querySelector('.cell-thumb');
+      thumb.dataset.src = 'results/' + sel.value;
+      const iframe = thumb.querySelector('iframe');
+      if (iframe) iframe.src = 'results/' + sel.value;
+      entry.dataset.path = sel.value;
+    }});
+  }});
+
+  setupLazyLoading();
+}}
+
+function openPromptModal(name) {{
+  const modal = document.getElementById('promptModal');
+  document.getElementById('promptModalTitle').textContent = titleCase(name);
+  document.getElementById('promptModalBody').textContent = PROMPTS[name] || 'No prompt found.';
+  modal.classList.add('open');
+}}
+function closePromptModal() {{
+  document.getElementById('promptModal').classList.remove('open');
+}}
+document.getElementById('promptModalClose').addEventListener('click', closePromptModal);
+document.getElementById('promptModal').addEventListener('click', (e) => {{
+  if (e.target === e.currentTarget) closePromptModal();
+}});
+
+document.getElementById('filterToggle').addEventListener('click', () => {{
+  const panel = document.getElementById('filterPanel');
+  const btn = document.getElementById('filterToggle');
+  panel.classList.toggle('open');
+  btn.classList.toggle('active');
+  btn.innerHTML = panel.classList.contains('open') ? '&#x25B2; Filters' : '&#x25BC; Filters';
+}});
+
+function buildFilterChips() {{
+  const promptContainer = document.getElementById('promptFilters');
+  const agentContainer = document.getElementById('agentFilters');
+
+  activePrompts.clear();
+  activeAgents.clear();
+  DATA.prompts.forEach(p => activePrompts.add(p));
+
+  const {{ columns, modelGroups }} = getGroupedColumns();
+  columns.forEach(c => activeAgents.add(c));
+
+  loadFilters();
+
+  promptContainer.innerHTML = '';
+  DATA.prompts.forEach(p => {{
+    const on = activePrompts.has(p);
+    const chip = document.createElement('label');
+    chip.className = 'filter-chip' + (on ? ' active' : '');
+    chip.innerHTML = '<input type="checkbox"' + (on ? ' checked' : '') + ' data-filter="prompt" data-value="' + p + '"> ' + titleCase(p);
+    chip.querySelector('input').addEventListener('change', onFilterChange);
+    promptContainer.appendChild(chip);
+  }});
+
+  agentContainer.innerHTML = '';
+  let colOffset = 0;
+  for (const g of modelGroups) {{
+    const groupLabel = document.createElement('div');
+    groupLabel.style.cssText = 'width:100%; font-size:0.72rem; color:#555; text-transform:uppercase; letter-spacing:0.04em; margin-top:8px; margin-bottom:2px;';
+    groupLabel.textContent = titleCase(g.model);
+    agentContainer.appendChild(groupLabel);
+    for (let j = 0; j < g.count; j++) {{
+      const col = columns[colOffset + j];
+      const agent = col.split('--')[0];
+      const on = activeAgents.has(col);
+      const chip = document.createElement('label');
+      chip.className = 'filter-chip' + (on ? ' active' : '');
+      chip.innerHTML = '<input type="checkbox"' + (on ? ' checked' : '') + ' data-filter="agent" data-value="' + col + '"> ' + titleCase(agent);
+      chip.querySelector('input').addEventListener('change', onFilterChange);
+      agentContainer.appendChild(chip);
+    }}
+    colOffset += g.count;
+  }}
+}}
+
+function saveFilters() {{
+  localStorage.setItem('isakov-bench-prompts', JSON.stringify([...activePrompts]));
+  localStorage.setItem('isakov-bench-agents', JSON.stringify([...activeAgents]));
+}}
+
+function loadFilters() {{
+  try {{
+    const p = JSON.parse(localStorage.getItem('isakov-bench-prompts'));
+    const a = JSON.parse(localStorage.getItem('isakov-bench-agents'));
+    if (p) {{ activePrompts.clear(); p.forEach(v => activePrompts.add(v)); }}
+    if (a) {{ activeAgents.clear(); a.forEach(v => activeAgents.add(v)); }}
+  }} catch(e) {{}}
+}}
+
+function onFilterChange(e) {{
+  const input = e.target;
+  const set = input.dataset.filter === 'prompt' ? activePrompts : activeAgents;
+  const chip = input.closest('.filter-chip');
+  if (input.checked) {{
+    set.add(input.dataset.value);
+    chip.classList.add('active');
+  }} else {{
+    set.delete(input.dataset.value);
+    chip.classList.remove('active');
+  }}
+  applyFilters();
+  saveFilters();
+}}
+
+function toggleAllFilters(type, on) {{
+  const containerId = type === 'prompt' ? 'promptFilters' : 'agentFilters';
+  const set = type === 'prompt' ? activePrompts : activeAgents;
+  document.querySelectorAll('#' + containerId + ' input').forEach(input => {{
+    input.checked = on;
+    const chip = input.closest('.filter-chip');
+    if (on) {{
+      set.add(input.dataset.value);
+      chip.classList.add('active');
+    }} else {{
+      set.delete(input.dataset.value);
+      chip.classList.remove('active');
+    }}
+  }});
+  applyFilters();
+  saveFilters();
+}}
+
+function applyFilters() {{
+  const table = document.querySelector('.matrix-container table');
+  if (!table) return;
+
+  const {{ columns, modelGroups }} = getGroupedColumns();
+
+  const headerRow2 = table.querySelectorAll('thead tr:nth-child(2) th');
+  columns.forEach((col, i) => {{
+    const visible = activeAgents.has(col);
+    if (headerRow2[i]) headerRow2[i].style.display = visible ? '' : 'none';
+    table.querySelectorAll('tbody tr > :nth-child(' + (i + 2) + ')').forEach(cell => {{
+      cell.style.display = visible ? '' : 'none';
+    }});
+  }});
+
+  const headerRow1 = table.querySelector('thead tr:first-child');
+  const modelHeaders = headerRow1.querySelectorAll('th.model-group');
+  let colOffset = 0;
+  modelGroups.forEach((g, gi) => {{
+    let visibleCount = 0;
+    for (let j = 0; j < g.count; j++) {{
+      if (activeAgents.has(columns[colOffset + j])) visibleCount++;
+    }}
+    modelHeaders[gi].style.display = visibleCount > 0 ? '' : 'none';
+    modelHeaders[gi].colSpan = Math.max(visibleCount, 1);
+    colOffset += g.count;
+  }});
+
+  const rows = table.querySelectorAll('tbody tr');
+  rows.forEach((row, i) => {{
+    const prompt = DATA.prompts[i];
+    row.style.display = activePrompts.has(prompt) ? '' : 'none';
+  }});
+}}
+
+buildFilterChips();
+renderMatrix();
+applyFilters();
+</script>
+</body>
+</html>'''
+
+
+def main():
+    data = scan_results()
+    prompts_map = load_prompts()
+    html = generate_html(data, prompts_map)
+
+    out_path = BASE_DIR / "index.html"
+    out_path.write_text(html)
+
+    n_results = len(data["results"])
+    n_prompts = len(data["prompts"])
+    n_agents = len(data["agents"])
+    print(f"Generated {out_path} ({n_results} results, {n_prompts} prompts, {n_agents} agents)")
+
+
+if __name__ == "__main__":
+    main()

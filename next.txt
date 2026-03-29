@@ -1,0 +1,6 @@
+- search doesn't work
+- question about performance
+- shall we have both index.html and server? maybe we shall just have a index.html generator by python script, also would be nice if this html is seo optimized
+- generate for glm 5.1
+- push to github
+- deploy?
