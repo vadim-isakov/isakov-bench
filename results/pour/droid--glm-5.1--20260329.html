@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Coffee Pour — Morning Ritual</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a0e08; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ── State ──
+let time = 0;
+const POUR_DURATION = 5.5;       // seconds of pouring
+const FILL_DURATION = 5.0;       // seconds to fill
+let pourProgress = 0;            // 0→1 during pour
+let fillLevel = 0;               // 0→1 mug fill
+let pourStopped = false;
+
+// ── Steam particles ──
+const steamParticles = [];
+const MAX_STEAM = 120;
+
+class SteamParticle {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.originX = x;
+    this.size = 3 + Math.random() * 8;
+    this.maxLife = 1.5 + Math.random() * 2.0;
+    this.life = 0;
+    this.vy = -(20 + Math.random() * 35);
+    this.amplitude = 8 + Math.random() * 15;
+    this.freq = 1.5 + Math.random() * 2.5;
+    this.phase = Math.random() * Math.PI * 2;
+    this.alpha = 0;
+    this.maxAlpha = 0.15 + Math.random() * 0.25;
+    this.growth = 6 + Math.random() * 10;
+  }
+  update(dt) {
+    this.life += dt;
+    const t = this.life / this.maxLife;
+    // fade in then out
+    this.alpha = t < 0.15 ? (t / 0.15) * this.maxAlpha
+               : t > 0.6 ? this.maxAlpha * (1 - (t - 0.6) / 0.4)
+               : this.maxAlpha;
+    this.x = this.originX + Math.sin(this.life * this.freq + this.phase) * this.amplitude;
+    this.y += this.vy * dt;
+    this.size += this.growth * dt;
+    return this.life < this.maxLife;
+  }
+  draw(ctx) {
+    if (this.alpha <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = this.alpha;
+    const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size);
+    grad.addColorStop(0, 'rgba(255,255,255,0.6)');
+    grad.addColorStop(0.5, 'rgba(255,255,255,0.15)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ── Splash particles ──
+const splashParticles = [];
+class SplashParticle {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.vx = (Math.random() - 0.5) * 60;
+    this.vy = -(20 + Math.random() * 50);
+    this.size = 1.5 + Math.random() * 3;
+    this.life = 0;
+    this.maxLife = 0.3 + Math.random() * 0.5;
+    this.gravity = 180;
+  }
+  update(dt) {
+    this.life += dt;
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.vy += this.gravity * dt;
+    return this.life < this.maxLife;
+  }
+  draw(ctx) {
+    const alpha = 1 - this.life / this.maxLife;
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.7;
+    ctx.fillStyle = '#3a1a08';
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ── Coffee stream particles (for the arc) ──
+const streamDroplets = [];
+
+// ── Mug geometry helpers ──
+function getMugRect() {
+  // Mug is centered horizontally, sits on counter
+  const mugW = W * 0.14;
+  const mugH = W * 0.17;
+  const cx = W * 0.55;
+  const counterY = H * 0.68;
+  return {
+    x: cx - mugW / 2,
+    y: counterY - mugH,
+    w: mugW,
+    h: mugH,
+    cx: cx,
+    topY: counterY - mugH,
+    bottomY: counterY,
+    rimWidth: mugW * 1.04,
+    baseWidth: mugW * 0.88
+  };
+}
+
+function getPotRect() {
+  const mug = getMugRect();
+  const potW = W * 0.18;
+  const potH = W * 0.22;
+  return {
+    x: mug.cx - W * 0.22,
+    y: mug.topY - potH * 0.7,
+    w: potW,
+    h: potH,
+    spoutTipX: mug.cx - W * 0.03,
+    spoutTipY: mug.topY + mug.h * 0.12
+  };
+}
+
+// ── Drawing functions ──
+
+function drawBackground() {
+  // Soft gradient sky / wall
+  const wallGrad = ctx.createLinearGradient(0, 0, 0, H);
+  wallGrad.addColorStop(0, '#f5e6d0');
+  wallGrad.addColorStop(0.45, '#e8d5b8');
+  wallGrad.addColorStop(0.55, '#d4b896');
+  wallGrad.addColorStop(1, '#b8956a');
+  ctx.fillStyle = wallGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Morning light from upper left
+  ctx.save();
+  const lightGrad = ctx.createRadialGradient(W * 0.15, H * 0.05, 0, W * 0.15, H * 0.05, W * 0.8);
+  lightGrad.addColorStop(0, 'rgba(255, 240, 200, 0.35)');
+  lightGrad.addColorStop(0.4, 'rgba(255, 230, 180, 0.12)');
+  lightGrad.addColorStop(1, 'rgba(255, 230, 180, 0)');
+  ctx.fillStyle = lightGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Light rays
+  ctx.globalAlpha = 0.06;
+  ctx.fillStyle = '#fff8e0';
+  for (let i = 0; i < 5; i++) {
+    const angle = -0.3 + i * 0.12;
+    const x1 = W * 0.1;
+    const y1 = 0;
+    const len = W * 1.2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 + Math.cos(angle) * len, y1 + Math.sin(angle + 0.8) * len);
+    ctx.lineTo(x1 + Math.cos(angle + 0.02) * len, y1 + Math.sin(angle + 0.82) * len);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawCounter() {
+  const counterY = H * 0.68;
+
+  // Counter top surface
+  const cGrad = ctx.createLinearGradient(0, counterY, 0, H);
+  cGrad.addColorStop(0, '#8B6F4E');
+  cGrad.addColorStop(0.02, '#7D6344');
+  cGrad.addColorStop(0.15, '#6E5636');
+  cGrad.addColorStop(0.5, '#5C462B');
+  cGrad.addColorStop(1, '#4A3820');
+  ctx.fillStyle = cGrad;
+  ctx.fillRect(0, counterY, W, H - counterY);
+
+  // Wood grain lines
+  ctx.save();
+  ctx.globalAlpha = 0.08;
+  ctx.strokeStyle = '#3a2810';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 30; i++) {
+    const y = counterY + 8 + i * ((H - counterY) / 30);
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    for (let x = 0; x < W; x += 20) {
+      ctx.lineTo(x, y + Math.sin(x * 0.005 + i) * 2);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Counter edge highlight (top)
+  ctx.save();
+  const edgeGrad = ctx.createLinearGradient(0, counterY - 2, 0, counterY + 4);
+  edgeGrad.addColorStop(0, 'rgba(255,240,200,0.3)');
+  edgeGrad.addColorStop(1, 'rgba(0,0,0,0.1)');
+  ctx.fillStyle = edgeGrad;
+  ctx.fillRect(0, counterY - 1, W, 5);
+  ctx.restore();
+
+  // Subtle warm light on counter from left
+  ctx.save();
+  const warmGrad = ctx.createLinearGradient(0, counterY, W * 0.5, counterY);
+  warmGrad.addColorStop(0, 'rgba(255, 220, 160, 0.12)');
+  warmGrad.addColorStop(1, 'rgba(255, 220, 160, 0)');
+  ctx.fillStyle = warmGrad;
+  ctx.fillRect(0, counterY, W, H - counterY);
+  ctx.restore();
+}
+
+function drawMugShadow() {
+  const mug = getMugRect();
+  ctx.save();
+  ctx.globalAlpha = 0.2;
+  ctx.fillStyle = '#2a1a0a';
+  ctx.beginPath();
+  ctx.ellipse(mug.cx + W * 0.04, mug.bottomY + 4, mug.w * 0.65, mug.h * 0.08, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawMug() {
+  const mug = getMugRect();
+  const { x, y, w, h, cx, topY, bottomY, rimWidth, baseWidth } = mug;
+
+  ctx.save();
+
+  // Mug body (slightly tapered)
+  const bodyGrad = ctx.createLinearGradient(x, topY, x + w, topY);
+  bodyGrad.addColorStop(0, '#e8e0d8');
+  bodyGrad.addColorStop(0.15, '#faf7f4');
+  bodyGrad.addColorStop(0.5, '#ffffff');
+  bodyGrad.addColorStop(0.75, '#f0ebe5');
+  bodyGrad.addColorStop(1, '#d5cdc3');
+
+  ctx.fillStyle = bodyGrad;
+  ctx.beginPath();
+  // Top left
+  ctx.moveTo(cx - rimWidth / 2, topY);
+  // Bottom left (tapered)
+  ctx.lineTo(cx - baseWidth / 2, bottomY);
+  // Bottom right
+  ctx.lineTo(cx + baseWidth / 2, bottomY);
+  // Top right
+  ctx.lineTo(cx + rimWidth / 2, topY);
+  ctx.closePath();
+  ctx.fill();
+
+  // Subtle shadow on left side
+  ctx.save();
+  ctx.clip();
+  const sideShadow = ctx.createLinearGradient(x, topY, x + w * 0.3, topY);
+  sideShadow.addColorStop(0, 'rgba(0,0,0,0.08)');
+  sideShadow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = sideShadow;
+  ctx.fillRect(x, topY, w, h);
+  ctx.restore();
+
+  // Mug rim (top ellipse)
+  ctx.fillStyle = '#f5f0ea';
+  ctx.beginPath();
+  ctx.ellipse(cx, topY, rimWidth / 2, h * 0.04, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#c8c0b5';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Inner rim shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.06)';
+  ctx.beginPath();
+  ctx.ellipse(cx, topY, rimWidth / 2 - 3, h * 0.035, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Handle
+  const handleX = cx + rimWidth / 2 - 2;
+  const handleTopY = topY + h * 0.2;
+  const handleBotY = topY + h * 0.7;
+  const handleW = w * 0.22;
+
+  ctx.strokeStyle = '#e0d8d0';
+  ctx.lineWidth = w * 0.055;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(handleX, handleTopY);
+  ctx.bezierCurveTo(
+    handleX + handleW * 1.2, handleTopY - h * 0.02,
+    handleX + handleW * 1.2, handleBotY + h * 0.02,
+    handleX, handleBotY
+  );
+  ctx.stroke();
+
+  // Handle highlight
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = w * 0.025;
+  ctx.beginPath();
+  ctx.moveTo(handleX + 2, handleTopY + 4);
+  ctx.bezierCurveTo(
+    handleX + handleW * 1.0, handleTopY,
+    handleX + handleW * 1.0, handleBotY,
+    handleX + 2, handleBotY - 4
+  );
+  ctx.stroke();
+
+  // Bottom base ring
+  ctx.fillStyle = '#d8d0c5';
+  ctx.beginPath();
+  ctx.ellipse(cx, bottomY, baseWidth / 2 + 2, h * 0.02, 0, 0, Math.PI);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawCoffeeInMug() {
+  if (fillLevel <= 0) return;
+  const mug = getMugRect();
+  const { cx, topY, bottomY, h, rimWidth, baseWidth } = mug;
+
+  const maxFillHeight = h * 0.82;
+  const coffeeHeight = maxFillHeight * fillLevel;
+  const coffeeTopY = bottomY - coffeeHeight;
+
+  // Interpolate width at coffee surface level
+  const t = coffeeHeight / h;
+  const topHalf = rimWidth / 2;
+  const botHalf = baseWidth / 2;
+  const halfW = botHalf + (topHalf - botHalf) * t;
+
+  ctx.save();
+
+  // Coffee surface with ripples
+  ctx.fillStyle = '#2c1008';
+  ctx.beginPath();
+  ctx.ellipse(cx, coffeeTopY, halfW, h * 0.035, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Coffee surface highlight
+  const surfGrad = ctx.createRadialGradient(cx - halfW * 0.2, coffeeTopY - 1, 0, cx, coffeeTopY, halfW);
+  surfGrad.addColorStop(0, 'rgba(80, 40, 15, 0.8)');
+  surfGrad.addColorStop(0.4, 'rgba(50, 20, 5, 0.5)');
+  surfGrad.addColorStop(1, 'rgba(44, 16, 8, 0)');
+  ctx.fillStyle = surfGrad;
+  ctx.beginPath();
+  ctx.ellipse(cx, coffeeTopY, halfW, h * 0.035, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Ripple effect where stream hits
+  if (!pourStopped && fillLevel > 0.05 && fillLevel < 0.95) {
+    const rippleTime = time * 4;
+    const rippleR = 5 + Math.sin(rippleTime) * 3;
+    ctx.save();
+    ctx.globalAlpha = 0.25;
+    ctx.strokeStyle = 'rgba(120, 70, 30, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(cx + Math.sin(time * 2) * 3, coffeeTopY, rippleR, rippleR * 0.3, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(cx + Math.sin(time * 2 + 1) * 3, coffeeTopY, rippleR * 1.5, rippleR * 0.45, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Coffee body (fill below surface)
+  ctx.fillStyle = '#2c1008';
+  ctx.beginPath();
+  ctx.moveTo(cx - halfW, coffeeTopY);
+  ctx.lineTo(cx - botHalf, bottomY);
+  ctx.lineTo(cx + botHalf, bottomY);
+  ctx.lineTo(cx + halfW, coffeeTopY);
+  ctx.closePath();
+  ctx.fill();
+
+  // Subtle coffee gradient for depth
+  const coffeeGrad = ctx.createLinearGradient(cx - halfW, coffeeTopY, cx + halfW, coffeeTopY);
+  coffeeGrad.addColorStop(0, 'rgba(60,25,10,0.3)');
+  coffeeGrad.addColorStop(0.4, 'rgba(40,15,5,0)');
+  coffeeGrad.addColorStop(0.7, 'rgba(40,15,5,0)');
+  coffeeGrad.addColorStop(1, 'rgba(60,25,10,0.2)');
+  ctx.fillStyle = coffeeGrad;
+  ctx.beginPath();
+  ctx.moveTo(cx - halfW, coffeeTopY);
+  ctx.lineTo(cx - botHalf, bottomY);
+  ctx.lineTo(cx + botHalf, bottomY);
+  ctx.lineTo(cx + halfW, coffeeTopY);
+  ctx.closePath();
+  ctx.fill();
+
+  // Meniscus (coffee curves up at edges)
+  ctx.save();
+  ctx.globalAlpha = 0.15;
+  ctx.fillStyle = '#5a2a10';
+  ctx.beginPath();
+  ctx.ellipse(cx, coffeeTopY, halfW * 0.9, h * 0.01, 0, 0, Math.PI);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.restore();
+}
+
+function drawPot() {
+  const pot = getPotRect();
+  const { x, y, w, h, spoutTipX, spoutTipY } = pot;
+
+  ctx.save();
+
+  // Pot body
+  const potGrad = ctx.createLinearGradient(x, y, x + w, y);
+  potGrad.addColorStop(0, '#4a4a4a');
+  potGrad.addColorStop(0.25, '#6a6a6a');
+  potGrad.addColorStop(0.5, '#787878');
+  potGrad.addColorStop(0.7, '#606060');
+  potGrad.addColorStop(1, '#3a3a3a');
+
+  // Pot is tilted — we rotate the whole pot
+  const tiltAngle = -0.35; // radians, tilted to pour
+  const pivotX = x + w * 0.4;
+  const pivotY = y + h;
+
+  ctx.translate(pivotX, pivotY);
+  ctx.rotate(tiltAngle);
+  ctx.translate(-pivotX, -pivotY);
+
+  // Pot body
+  ctx.fillStyle = potGrad;
+  ctx.beginPath();
+  ctx.moveTo(x + w * 0.15, y);
+  ctx.quadraticCurveTo(x, y + h * 0.5, x + w * 0.05, y + h);
+  ctx.lineTo(x + w * 0.85, y + h);
+  ctx.quadraticCurveTo(x + w + w * 0.05, y + h * 0.5, x + w * 0.75, y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Pot rim
+  ctx.fillStyle = '#555';
+  ctx.beginPath();
+  ctx.ellipse(x + w * 0.45, y, w * 0.32, h * 0.04, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#777';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Pot spout
+  ctx.fillStyle = '#5a5a5a';
+  ctx.beginPath();
+  ctx.moveTo(x + w * 0.75, y + h * 0.05);
+  ctx.quadraticCurveTo(x + w * 0.95, y - h * 0.08, x + w + w * 0.1, y + h * 0.02);
+  ctx.lineTo(x + w + w * 0.1, y + h * 0.12);
+  ctx.quadraticCurveTo(x + w * 0.95, y + h * 0.08, x + w * 0.78, y + h * 0.12);
+  ctx.closePath();
+  ctx.fill();
+
+  // Pot handle
+  ctx.strokeStyle = '#3a3a3a';
+  ctx.lineWidth = w * 0.06;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x + w * 0.1, y + h * 0.15);
+  ctx.bezierCurveTo(
+    x - w * 0.2, y + h * 0.2,
+    x - w * 0.25, y + h * 0.6,
+    x + w * 0.05, y + h * 0.7
+  );
+  ctx.stroke();
+
+  // Highlight on pot
+  ctx.save();
+  ctx.globalAlpha = 0.15;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.ellipse(x + w * 0.35, y + h * 0.35, w * 0.08, h * 0.25, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.restore();
+}
+
+function drawCoffeeStream() {
+  if (pourStopped || pourProgress <= 0) return;
+
+  const mug = getMugRect();
+  const pot = getPotRect();
+
+  // Stream start (pot spout tip, adjusted for tilt)
+  const startX = pot.spoutTipX;
+  const startY = pot.spoutTipY;
+
+  // Stream end (coffee surface in mug)
+  const maxFillHeight = mug.h * 0.82;
+  const coffeeTopY = mug.bottomY - maxFillHeight * fillLevel;
+  const endY = fillLevel > 0.05 ? coffeeTopY : mug.topY + mug.h * 0.5;
+  const endX = mug.cx;
+
+  // Animate stream flow
+  const flowAlpha = Math.min(pourProgress * 3, 1);
+
+  ctx.save();
+  ctx.globalAlpha = flowAlpha;
+
+  // Main stream arc using bezier curve
+  const cpX1 = startX + (endX - startX) * 0.2;
+  const cpY1 = startY - H * 0.04;
+  const cpX2 = endX - (endX - startX) * 0.1;
+  const cpY2 = startY + (endY - startY) * 0.5;
+
+  // Stream width varies
+  const streamW = 3 + Math.sin(time * 8) * 0.8;
+
+  // Draw multiple strands for realism
+  for (let i = -1; i <= 1; i++) {
+    const offset = i * 1.5;
+    const alpha = i === 0 ? 0.9 : 0.3;
+    ctx.globalAlpha = flowAlpha * alpha;
+
+    const grad = ctx.createLinearGradient(startX, startY, endX, endY);
+    grad.addColorStop(0, '#1a0800');
+    grad.addColorStop(0.5, '#2c1008');
+    grad.addColorStop(1, '#3a1a08');
+
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = streamW - Math.abs(i);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(startX + offset, startY);
+    ctx.bezierCurveTo(cpX1 + offset, cpY1, cpX2 + offset, cpY2, endX + offset, endY);
+    ctx.stroke();
+  }
+
+  // Stream highlight
+  ctx.globalAlpha = flowAlpha * 0.2;
+  ctx.strokeStyle = 'rgba(180, 120, 60, 0.5)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(startX - 1, startY);
+  ctx.bezierCurveTo(cpX1 - 1, cpY1, cpX2 - 1, cpY2, endX - 1, endY);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawSplash() {
+  for (const p of splashParticles) {
+    p.draw(ctx);
+  }
+}
+
+function drawSteam() {
+  for (const p of steamParticles) {
+    p.draw(ctx);
+  }
+}
+
+function drawWarmGlow() {
+  // Soft warm vignette
+  ctx.save();
+  const vignette = ctx.createRadialGradient(W * 0.5, H * 0.5, W * 0.2, W * 0.5, H * 0.5, W * 0.9);
+  vignette.addColorStop(0, 'rgba(0,0,0,0)');
+  vignette.addColorStop(0.7, 'rgba(0,0,0,0)');
+  vignette.addColorStop(1, 'rgba(20,10,0,0.25)');
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+// ── Update functions ──
+
+function updateSteam(dt) {
+  const mug = getMugRect();
+  if (fillLevel > 0.15) {
+    const spawnRate = pourStopped ? 12 : 20;
+    const maxFillHeight = mug.h * 0.82;
+    const coffeeTopY = mug.bottomY - maxFillHeight * fillLevel;
+
+    for (let i = 0; i < spawnRate * dt; i++) {
+      if (steamParticles.length < MAX_STEAM) {
+        const sx = mug.cx + (Math.random() - 0.5) * mug.w * 0.5;
+        const sy = coffeeTopY - 2 - Math.random() * 5;
+        steamParticles.push(new SteamParticle(sx, sy));
+      }
+    }
+  }
+
+  for (let i = steamParticles.length - 1; i >= 0; i--) {
+    if (!steamParticles[i].update(dt)) {
+      steamParticles.splice(i, 1);
+    }
+  }
+}
+
+function updateSplash(dt) {
+  const mug = getMugRect();
+  if (!pourStopped && fillLevel > 0.02 && fillLevel < 0.95) {
+    if (Math.random() < 15 * dt) {
+      const maxFillHeight = mug.h * 0.82;
+      const coffeeTopY = mug.bottomY - maxFillHeight * fillLevel;
+      splashParticles.push(new SplashParticle(
+        mug.cx + (Math.random() - 0.5) * 10,
+        coffeeTopY
+      ));
+    }
+  }
+
+  for (let i = splashParticles.length - 1; i >= 0; i--) {
+    if (!splashParticles[i].update(dt)) {
+      splashParticles.splice(i, 1);
+    }
+  }
+}
+
+// ── Main loop ──
+let lastTime = performance.now();
+
+function animate(now) {
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+  time += dt;
+
+  // Update pour and fill
+  if (!pourStopped) {
+    pourProgress = Math.min(time / 0.5, 1); // ramp up stream in 0.5s
+    fillLevel = Math.min(time / FILL_DURATION, 1);
+    if (fillLevel >= 1) {
+      pourStopped = true;
+      pourProgress = 0;
+    }
+  } else {
+    // Fade out stream after stopping
+    pourProgress = 0;
+  }
+
+  // Update particles
+  updateSteam(dt);
+  updateSplash(dt);
+
+  // ── Draw everything ──
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawCounter();
+  drawMugShadow();
+  drawPot();
+  drawCoffeeStream();
+  drawSplash();
+  drawMug();
+  drawCoffeeInMug();
+  drawSteam();
+  drawWarmGlow();
+
+  requestAnimationFrame(animate);
+}
+
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>

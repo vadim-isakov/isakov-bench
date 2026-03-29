@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tropical Fish Tank</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a2a3a; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="tank"></canvas>
+<script>
+const canvas = document.getElementById('tank');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── Utility ───────────────────────────────────────────
+function rand(a, b) { return Math.random() * (b - a) + a; }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ─── Pebbles ───────────────────────────────────────────
+const pebbles = [];
+for (let i = 0; i < 60; i++) {
+  pebbles.push({
+    x: rand(0, 2000),
+    y: rand(0, 60),
+    rx: rand(4, 14),
+    ry: rand(3, 8),
+    hue: rand(20, 50),
+    sat: rand(10, 40),
+    lit: rand(25, 50),
+    rot: rand(-0.4, 0.4)
+  });
+}
+
+// ─── Plants ────────────────────────────────────────────
+const plants = [];
+for (let i = 0; i < 9; i++) {
+  const blades = [];
+  const bx = rand(40, 1960);
+  for (let j = 0; j < Math.floor(rand(4, 9)); j++) {
+    blades.push({
+      offsetX: rand(-20, 20),
+      height: rand(80, 220),
+      width: rand(8, 16),
+      hue: rand(100, 150),
+      sat: rand(40, 70),
+      lit: rand(20, 40),
+      phase: rand(0, Math.PI * 2),
+      swayAmp: rand(10, 30),
+      swaySpeed: rand(0.3, 0.8)
+    });
+  }
+  plants.push({ x: bx, blades });
+}
+
+// ─── Bubbles ───────────────────────────────────────────
+const bubbles = [];
+const aeratorX = () => W * 0.5;
+const aeratorY = () => H - 30;
+
+function spawnBubble() {
+  bubbles.push({
+    x: aeratorX() + rand(-10, 10),
+    y: aeratorY(),
+    r: rand(2, 6),
+    speed: rand(0.5, 1.8),
+    wobblePhase: rand(0, Math.PI * 2),
+    wobbleAmp: rand(8, 20),
+    wobbleSpeed: rand(1, 3),
+    opacity: rand(0.3, 0.7)
+  });
+}
+
+// ─── Fish Species Definitions ──────────────────────────
+const species = [
+  {
+    name: 'Clownfish',
+    bodyColor: '#ff6a00',
+    stripeColor: '#ffffff',
+    bodyLen: 36, bodyH: 16,
+    tailSize: 14,
+    finColor: 'rgba(255,140,0,0.6)',
+    speed: 1.2,
+    depth: 0.4,
+    draw: drawClownfish
+  },
+  {
+    name: 'Angelfish',
+    bodyColor: '#c0c0ff',
+    stripeColor: '#3333aa',
+    bodyLen: 28, bodyH: 34,
+    tailSize: 12,
+    finColor: 'rgba(180,180,255,0.5)',
+    speed: 0.8,
+    depth: 0.55,
+    draw: drawAngelfish
+  },
+  {
+    name: 'Neon Tetra',
+    bodyColor: '#00ccff',
+    stripeColor: '#ff0044',
+    bodyLen: 18, bodyH: 8,
+    tailSize: 7,
+    finColor: 'rgba(0,200,255,0.5)',
+    speed: 1.8,
+    depth: 0.6,
+    draw: drawNeonTetra
+  },
+  {
+    name: 'Betta',
+    bodyColor: '#cc0066',
+    stripeColor: '#ff66cc',
+    bodyLen: 30, bodyH: 14,
+    tailSize: 22,
+    finColor: 'rgba(200,0,100,0.5)',
+    speed: 0.7,
+    depth: 0.35,
+    draw: drawBetta
+  },
+  {
+    name: 'Guppy',
+    bodyColor: '#44dd44',
+    stripeColor: '#ffcc00',
+    bodyLen: 14, bodyH: 7,
+    tailSize: 10,
+    finColor: 'rgba(68,221,68,0.5)',
+    speed: 1.5,
+    depth: 0.7,
+    draw: drawGuppy
+  },
+  {
+    name: 'Discus',
+    bodyColor: '#ff4488',
+    stripeColor: '#ffaa00',
+    bodyLen: 32, bodyH: 30,
+    tailSize: 10,
+    finColor: 'rgba(255,68,136,0.4)',
+    speed: 0.6,
+    depth: 0.45,
+    draw: drawDiscus
+  },
+  {
+    name: 'Blue Tang',
+    bodyColor: '#2255ff',
+    stripeColor: '#000033',
+    bodyLen: 34, bodyH: 18,
+    tailSize: 12,
+    finColor: 'rgba(34,85,255,0.5)',
+    speed: 1.0,
+    depth: 0.5,
+    draw: drawBlueTang
+  },
+  {
+    name: 'Goldfish',
+    bodyColor: '#ffaa00',
+    stripeColor: '#ff6600',
+    bodyLen: 26, bodyH: 16,
+    tailSize: 18,
+    finColor: 'rgba(255,170,0,0.5)',
+    speed: 0.9,
+    depth: 0.3,
+    draw: drawGoldfish
+  }
+];
+
+// ─── Create Fish Instances ─────────────────────────────
+const fishes = [];
+for (let i = 0; i < species.length; i++) {
+  const sp = species[i];
+  fishes.push({
+    ...sp,
+    x: rand(100, W - 100),
+    y: rand(H * 0.15, H * 0.75),
+    vx: (Math.random() < 0.5 ? 1 : -1) * sp.speed * rand(0.7, 1.3),
+    vy: rand(-0.2, 0.2),
+    dir: 1,
+    targetX: rand(100, W - 100),
+    targetY: rand(H * 0.15, H * 0.75),
+    tailPhase: rand(0, Math.PI * 2),
+    turnTimer: rand(60, 200),
+    wobble: rand(0, Math.PI * 2),
+    scale: rand(0.8, 1.2)
+  });
+}
+
+// ─── Fish Drawing Functions ────────────────────────────
+function drawClownfish(ctx, f, tailWag) {
+  const s = f.scale;
+  const bw = f.bodyLen * s, bh = f.bodyH * s;
+  // Body
+  ctx.fillStyle = f.bodyColor;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, bw / 2, bh / 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // White stripes
+  ctx.strokeStyle = f.stripeColor;
+  ctx.lineWidth = 3 * s;
+  [-0.2, 0.2].forEach(off => {
+    ctx.beginPath();
+    ctx.moveTo(bw * off, -bh / 2);
+    ctx.lineTo(bw * off, bh / 2);
+    ctx.stroke();
+  });
+  // Tail
+  ctx.fillStyle = f.bodyColor;
+  ctx.beginPath();
+  ctx.moveTo(-bw / 2, 0);
+  ctx.lineTo(-bw / 2 - f.tailSize * s, -f.tailSize * s * 0.7 + tailWag * 3);
+  ctx.lineTo(-bw / 2 - f.tailSize * s, f.tailSize * s * 0.7 + tailWag * 3);
+  ctx.closePath();
+  ctx.fill();
+  // Eye
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(bw * 0.25, -bh * 0.1, 3 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(bw * 0.27, -bh * 0.1, 1.5 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawAngelfish(ctx, f, tailWag) {
+  const s = f.scale;
+  const bw = f.bodyLen * s, bh = f.bodyH * s;
+  // Body - tall diamond
+  ctx.fillStyle = f.bodyColor;
+  ctx.beginPath();
+  ctx.moveTo(bw * 0.5, 0);
+  ctx.quadraticCurveTo(0, -bh / 2, -bw * 0.4, 0);
+  ctx.quadraticCurveTo(0, bh / 2, bw * 0.5, 0);
+  ctx.fill();
+  // Dark stripes
+  ctx.strokeStyle = f.stripeColor;
+  ctx.lineWidth = 2.5 * s;
+  for (let i = -1; i <= 1; i++) {
+    ctx.beginPath();
+    ctx.moveTo(bw * 0.1 + i * bw * 0.12, -bh * 0.35);
+    ctx.lineTo(bw * 0.1 + i * bw * 0.12, bh * 0.35);
+    ctx.stroke();
+  }
+  // Dorsal & ventral fins
+  ctx.fillStyle = f.finColor;
+  ctx.beginPath();
+  ctx.moveTo(bw * 0.1, -bh * 0.45);
+  ctx.lineTo(-bw * 0.1, -bh * 0.7);
+  ctx.lineTo(-bw * 0.15, -bh * 0.3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(bw * 0.1, bh * 0.45);
+  ctx.lineTo(-bw * 0.1, bh * 0.7);
+  ctx.lineTo(-bw * 0.15, bh * 0.3);
+  ctx.closePath();
+  ctx.fill();
+  // Tail
+  ctx.fillStyle = f.bodyColor;
+  ctx.beginPath();
+  ctx.moveTo(-bw * 0.4, 0);
+  ctx.lineTo(-bw * 0.4 - f.tailSize * s, -f.tailSize * s * 0.5 + tailWag * 2);
+  ctx.lineTo(-bw * 0.4 - f.tailSize * s, f.tailSize * s * 0.5 + tailWag * 2);
+  ctx.closePath();
+  ctx.fill();
+  // Eye
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(bw * 0.28, -bh * 0.05, 3 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(bw * 0.30, -bh * 0.05, 1.5 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawNeonTetra(ctx, f, tailWag) {
+  const s = f.scale;
+  const bw = f.bodyLen * s, bh = f.bodyH * s;
+  // Body
+  ctx.fillStyle = '#ccddee';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, bw / 2, bh / 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Neon blue stripe
+  ctx.strokeStyle = f.bodyColor;
+  ctx.lineWidth = 3 * s;
+  ctx.beginPath();
+  ctx.moveTo(bw * 0.4, 0);
+  ctx.lineTo(-bw * 0.35, 0);
+  ctx.stroke();
+  // Red tail area
+  ctx.fillStyle = f.stripeColor;
+  ctx.beginPath();
+  ctx.ellipse(-bw * 0.2, 0, bw * 0.2, bh * 0.4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Tail
+  ctx.fillStyle = '#ccddee';
+  ctx.beginPath();
+  ctx.moveTo(-bw / 2, 0);
+  ctx.lineTo(-bw / 2 - f.tailSize * s, -f.tailSize * s * 0.6 + tailWag * 2);
+  ctx.lineTo(-bw / 2 - f.tailSize * s, f.tailSize * s * 0.6 + tailWag * 2);
+  ctx.closePath();
+  ctx.fill();
+  // Eye
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(bw * 0.3, -bh * 0.05, 2 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(bw * 0.32, -bh * 0.05, 1 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawBetta(ctx, f, tailWag) {
+  const s = f.scale;
+  const bw = f.bodyLen * s, bh = f.bodyH * s;
+  // Flowing tail
+  const tw = f.tailSize * s;
+  ctx.fillStyle = 'rgba(200,0,100,0.6)';
+  ctx.beginPath();
+  ctx.moveTo(-bw * 0.35, 0);
+  ctx.bezierCurveTo(-bw * 0.5, -tw * 0.8 + tailWag * 4, -bw * 0.7 - tw, -tw * 0.5 + tailWag * 6, -bw * 0.4 - tw, tailWag * 3);
+  ctx.bezierCurveTo(-bw * 0.7 - tw, tw * 0.5 + tailWag * 6, -bw * 0.5, tw * 0.8 + tailWag * 4, -bw * 0.35, 0);
+  ctx.fill();
+  // Body
+  const grad = ctx.createLinearGradient(0, -bh / 2, 0, bh / 2);
+  grad.addColorStop(0, '#ff3399');
+  grad.addColorStop(0.5, f.bodyColor);
+  grad.addColorStop(1, '#990044');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, bw / 2, bh / 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Dorsal fin
+  ctx.fillStyle = 'rgba(255,50,150,0.4)';
+  ctx.beginPath();
+  ctx.moveTo(bw * 0.2, -bh * 0.4);
+  ctx.quadraticCurveTo(0, -bh * 1.0 + tailWag * 2, -bw * 0.2, -bh * 0.4);
+  ctx.closePath();
+  ctx.fill();
+  // Eye
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(bw * 0.25, -bh * 0.1, 3 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(bw * 0.27, -bh * 0.1, 1.5 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawGuppy(ctx, f, tailWag) {
+  const s = f.scale;
+  const bw = f.bodyLen * s, bh = f.bodyH * s;
+  // Colorful tail (fan-shaped)
+  const tw = f.tailSize * s;
+  ctx.fillStyle = 'rgba(255,200,0,0.7)';
+  ctx.beginPath();
+  ctx.moveTo(-bw * 0.35, 0);
+  ctx.bezierCurveTo(-bw * 0.5, -tw * 0.9 + tailWag * 3, -bw * 0.5 - tw, -tw * 0.6 + tailWag * 4, -bw * 0.3 - tw, tailWag * 2);
+  ctx.bezierCurveTo(-bw * 0.5 - tw, tw * 0.6 + tailWag * 4, -bw * 0.5, tw * 0.9 + tailWag * 3, -bw * 0.35, 0);
+  ctx.fill();
+  // Body
+  ctx.fillStyle = f.bodyColor;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, bw / 2, bh / 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Orange belly
+  ctx.fillStyle = '#ffaa00';
+  ctx.beginPath();
+  ctx.ellipse(bw * 0.05, bh * 0.15, bw * 0.25, bh * 0.2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Dorsal fin
+  ctx.fillStyle = f.finColor;
+  ctx.beginPath();
+  ctx.moveTo(bw * 0.15, -bh * 0.4);
+  ctx.lineTo(0, -bh * 0.8);
+  ctx.lineTo(-bw * 0.1, -bh * 0.35);
+  ctx.closePath();
+  ctx.fill();
+  // Eye
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(bw * 0.28, -bh * 0.1, 2 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(bw * 0.30, -bh * 0.1, 1 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawDiscus(ctx, f, tailWag) {
+  const s = f.scale;
+  const bw = f.bodyLen * s, bh = f.bodyH * s;
+  // Body - nearly circular
+  const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, bw * 0.5);
+  grad.addColorStop(0, '#ff88aa');
+  grad.addColorStop(0.6, f.bodyColor);
+  grad.addColorStop(1, '#cc2255');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, bw * 0.48, bh * 0.48, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Wavy pattern lines
+  ctx.strokeStyle = f.stripeColor;
+  ctx.lineWidth = 1.5 * s;
+  for (let i = -2; i <= 2; i++) {
+    ctx.beginPath();
+    for (let x = -bw * 0.35; x < bw * 0.35; x += 2) {
+      const yy = i * bh * 0.1 + Math.sin(x * 0.15 + f.wobble) * 3 * s;
+      x === -bw * 0.35 ? ctx.moveTo(x, yy) : ctx.lineTo(x, yy);
+    }
+    ctx.stroke();
+  }
+  // Dorsal & anal fins
+  ctx.fillStyle = 'rgba(255,100,150,0.35)';
+  ctx.beginPath();
+  ctx.moveTo(bw * 0.1, -bh * 0.44);
+  ctx.quadraticCurveTo(-bw * 0.05, -bh * 0.7, -bw * 0.2, -bh * 0.44);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(bw * 0.1, bh * 0.44);
+  ctx.quadraticCurveTo(-bw * 0.05, bh * 0.7, -bw * 0.2, bh * 0.44);
+  ctx.closePath();
+  ctx.fill();
+  // Tail (small)
+  ctx.fillStyle = f.bodyColor;
+  ctx.beginPath();
+  ctx.moveTo(-bw * 0.45, 0);
+  ctx.lineTo(-bw * 0.45 - f.tailSize * s * 0.6, -f.tailSize * s * 0.4 + tailWag * 2);
+  ctx.lineTo(-bw * 0.45 - f.tailSize * s * 0.6, f.tailSize * s * 0.4 + tailWag * 2);
+  ctx.closePath();
+  ctx.fill();
+  // Eye
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(bw * 0.2, -bh * 0.05, 3.5 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(bw * 0.22, -bh * 0.05, 2 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawBlueTang(ctx, f, tailWag) {
+  const s = f.scale;
+  const bw = f.bodyLen * s, bh = f.bodyH * s;
+  // Body
+  ctx.fillStyle = f.bodyColor;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, bw / 2, bh / 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Black pattern - band across eye area and triangular mark
+  ctx.fillStyle = f.stripeColor;
+  ctx.beginPath();
+  ctx.moveTo(bw * 0.3, -bh * 0.3);
+  ctx.quadraticCurveTo(bw * 0.15, 0, bw * 0.3, bh * 0.3);
+  ctx.lineTo(bw * 0.45, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-bw * 0.1, -bh * 0.15);
+  ctx.lineTo(-bw * 0.3, -bh * 0.4);
+  ctx.lineTo(-bw * 0.25, bh * 0.0);
+  ctx.closePath();
+  ctx.fill();
+  // Yellow tail accent
+  ctx.fillStyle = '#ffdd00';
+  ctx.beginPath();
+  ctx.moveTo(-bw * 0.45, 0);
+  ctx.lineTo(-bw * 0.45 - f.tailSize * s, -f.tailSize * s * 0.5 + tailWag * 2);
+  ctx.lineTo(-bw * 0.45 - f.tailSize * s, f.tailSize * s * 0.5 + tailWag * 2);
+  ctx.closePath();
+  ctx.fill();
+  // Eye
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(bw * 0.28, -bh * 0.05, 3 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(bw * 0.30, -bh * 0.05, 1.5 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawGoldfish(ctx, f, tailWag) {
+  const s = f.scale;
+  const bw = f.bodyLen * s, bh = f.bodyH * s;
+  // Flowing double tail
+  const tw = f.tailSize * s;
+  ctx.fillStyle = 'rgba(255,150,0,0.7)';
+  ctx.beginPath();
+  ctx.moveTo(-bw * 0.35, 0);
+  ctx.bezierCurveTo(-bw * 0.45, -tw * 0.6 + tailWag * 3, -bw * 0.6 - tw * 0.5, -tw * 0.5 + tailWag * 5, -bw * 0.35 - tw, tailWag * 2);
+  ctx.bezierCurveTo(-bw * 0.6 - tw * 0.5, tw * 0.5 + tailWag * 5, -bw * 0.45, tw * 0.6 + tailWag * 3, -bw * 0.35, 0);
+  ctx.fill();
+  // Body
+  const grad = ctx.createRadialGradient(bw * 0.05, -bh * 0.1, 2, 0, 0, bw * 0.5);
+  grad.addColorStop(0, '#ffdd44');
+  grad.addColorStop(0.5, f.bodyColor);
+  grad.addColorStop(1, '#cc6600');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, bw / 2, bh / 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Dorsal fin
+  ctx.fillStyle = 'rgba(255,170,0,0.5)';
+  ctx.beginPath();
+  ctx.moveTo(bw * 0.15, -bh * 0.4);
+  ctx.quadraticCurveTo(bw * 0.05, -bh * 0.85 + tailWag, -bw * 0.1, -bh * 0.4);
+  ctx.closePath();
+  ctx.fill();
+  // Eye
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(bw * 0.28, -bh * 0.08, 3 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(bw * 0.30, -bh * 0.08, 1.5 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ─── Caustic Light Pattern ─────────────────────────────
+function drawCaustics(t) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'overlay';
+  ctx.globalAlpha = 0.08;
+  const cellSize = 80;
+  for (let x = 0; x < W; x += cellSize) {
+    for (let y = 0; y < H; y += cellSize) {
+      const val = Math.sin(x * 0.008 + t * 0.7) * Math.cos(y * 0.006 + t * 0.5) *
+                  Math.sin((x + y) * 0.005 + t * 0.3);
+      if (val > 0.2) {
+        const r = val * 40;
+        const grad = ctx.createRadialGradient(
+          x + cellSize / 2, y + cellSize / 2, 0,
+          x + cellSize / 2, y + cellSize / 2, r
+        );
+        grad.addColorStop(0, 'rgba(180,255,255,0.6)');
+        grad.addColorStop(1, 'rgba(180,255,255,0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(x, y, cellSize, cellSize);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// ─── Light rays from above ─────────────────────────────
+function drawLightRays(t) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  for (let i = 0; i < 5; i++) {
+    const x = W * (0.15 + i * 0.18) + Math.sin(t * 0.3 + i) * 30;
+    const spread = 60 + Math.sin(t * 0.5 + i * 1.5) * 20;
+    const alpha = 0.03 + Math.sin(t * 0.4 + i * 0.7) * 0.015;
+    const grad = ctx.createLinearGradient(x, 0, x, H * 0.8);
+    grad.addColorStop(0, `rgba(200,255,255,${alpha * 2})`);
+    grad.addColorStop(0.5, `rgba(150,230,255,${alpha})`);
+    grad.addColorStop(1, 'rgba(150,230,255,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(x - spread * 0.3, 0);
+    ctx.lineTo(x + spread * 0.3, 0);
+    ctx.lineTo(x + spread, H * 0.8);
+    ctx.lineTo(x - spread, H * 0.8);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ─── Update Fish ───────────────────────────────────────
+function updateFish(f, dt) {
+  f.turnTimer -= 1;
+  if (f.turnTimer <= 0) {
+    f.targetX = rand(80, W - 80);
+    f.targetY = rand(H * 0.12, H * 0.78);
+    f.turnTimer = rand(120, 300);
+  }
+
+  const dx = f.targetX - f.x;
+  const dy = f.targetY - f.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  if (dist > 5) {
+    const ax = (dx / dist) * f.speed * 0.02;
+    const ay = (dy / dist) * f.speed * 0.015;
+    f.vx = clamp(f.vx + ax, -f.speed * 1.5, f.speed * 1.5);
+    f.vy = clamp(f.vy + ay, -f.speed * 0.6, f.speed * 0.6);
+  }
+
+  // Slight wandering
+  f.wobble += 0.02;
+  f.vy += Math.sin(f.wobble) * 0.005;
+
+  f.x += f.vx;
+  f.y += f.vy;
+
+  // Boundary wrapping with margin
+  const m = 60;
+  if (f.x < -m) f.x = W + m;
+  if (f.x > W + m) f.x = -m;
+  if (f.y < H * 0.08) { f.y = H * 0.08; f.vy *= -0.5; }
+  if (f.y > H * 0.82) { f.y = H * 0.82; f.vy *= -0.5; }
+
+  // Direction facing
+  if (Math.abs(f.vx) > 0.1) {
+    f.dir = f.vx > 0 ? 1 : -1;
+  }
+
+  // Tail animation
+  f.tailPhase += 0.08 + Math.abs(f.vx) * 0.04;
+}
+
+// ─── Main Loop ─────────────────────────────────────────
+let time = 0;
+let bubbleTimer = 0;
+
+function draw() {
+  time += 0.016;
+  const t = time;
+
+  // ── Background gradient (blue-green tint) ──
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+  bgGrad.addColorStop(0, '#0d3d4d');
+  bgGrad.addColorStop(0.3, '#0e4a52');
+  bgGrad.addColorStop(0.7, '#0a3540');
+  bgGrad.addColorStop(1, '#07252d');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Light rays ──
+  drawLightRays(t);
+
+  // ── Sandy bottom ──
+  const sandGrad = ctx.createLinearGradient(0, H - 60, 0, H);
+  sandGrad.addColorStop(0, 'rgba(120,100,60,0)');
+  sandGrad.addColorStop(0.4, 'rgba(120,100,60,0.5)');
+  sandGrad.addColorStop(1, 'rgba(90,75,45,0.8)');
+  ctx.fillStyle = sandGrad;
+  ctx.fillRect(0, H - 60, W, 60);
+
+  // ── Pebbles (scaled to viewport) ──
+  ctx.save();
+  const scaleX = W / 2000;
+  for (const p of pebbles) {
+    ctx.save();
+    ctx.translate(p.x * scaleX, H - 15 - p.y * 0.5);
+    ctx.rotate(p.rot);
+    ctx.fillStyle = `hsl(${p.hue}, ${p.sat}%, ${p.lit}%)`;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, p.rx, p.ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.beginPath();
+    ctx.ellipse(-p.rx * 0.2, -p.ry * 0.3, p.rx * 0.4, p.ry * 0.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // ── Aerator device ──
+  const ax = aeratorX();
+  const ay = aeratorY();
+  ctx.fillStyle = '#556';
+  ctx.beginPath();
+  ctx.moveTo(ax - 11, ay - 8);
+  ctx.lineTo(ax + 11, ay - 8);
+  ctx.quadraticCurveTo(ax + 15, ay - 8, ax + 15, ay - 4);
+  ctx.lineTo(ax + 15, ay);
+  ctx.quadraticCurveTo(ax + 15, ay + 4, ax + 11, ay + 4);
+  ctx.lineTo(ax - 11, ay + 4);
+  ctx.quadraticCurveTo(ax - 15, ay + 4, ax - 15, ay);
+  ctx.lineTo(ax - 15, ay - 4);
+  ctx.quadraticCurveTo(ax - 15, ay - 8, ax - 11, ay - 8);
+  ctx.fill();
+  ctx.fillStyle = '#445';
+  ctx.fillRect(ax - 12, ay - 5, 24, 6);
+
+  // ── Plants ──
+  for (const plant of plants) {
+    const px = plant.x * scaleX;
+    ctx.save();
+    for (const blade of plant.blades) {
+      const baseX = px + blade.offsetX * scaleX;
+      const baseY = H - 20;
+      const tipX = baseX + Math.sin(t * blade.swaySpeed + blade.phase) * blade.swayAmp;
+      const tipY = baseY - blade.height * (H / 900);
+      const cp1x = baseX + Math.sin(t * blade.swaySpeed + blade.phase + 0.5) * blade.swayAmp * 0.5;
+      const cp1y = lerp(baseY, tipY, 0.4);
+
+      ctx.strokeStyle = `hsl(${blade.hue}, ${blade.sat}%, ${blade.lit}%)`;
+      ctx.lineWidth = blade.width * (H / 900) * 0.5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(baseX, baseY);
+      ctx.quadraticCurveTo(cp1x, cp1y, tipX, tipY);
+      ctx.stroke();
+
+      // Leaf blobs along the stem
+      for (let j = 0.3; j < 0.9; j += 0.25) {
+        const lx = lerp(baseX, tipX, j) + Math.sin(t * blade.swaySpeed + blade.phase + j * 3) * 5;
+        const ly = lerp(baseY, tipY, j);
+        ctx.fillStyle = `hsla(${blade.hue + 10}, ${blade.sat + 10}%, ${blade.lit + 5}%, 0.6)`;
+        ctx.beginPath();
+        ctx.ellipse(lx, ly, blade.width * 0.8, blade.width * 0.3, Math.sin(t + j) * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  // ── Caustic light patterns ──
+  drawCaustics(t);
+
+  // ── Update and draw fish ──
+  // Sort by depth for layering
+  fishes.sort((a, b) => a.depth - b.depth);
+  for (const f of fishes) {
+    updateFish(f, 0.016);
+    const tailWag = Math.sin(f.tailPhase) * 3;
+
+    ctx.save();
+    ctx.translate(f.x, f.y);
+
+    // Scale with depth for parallax feel
+    const depthScale = 0.7 + f.depth * 0.5;
+    ctx.scale(f.dir * depthScale, depthScale);
+
+    // Slight alpha for depth
+    ctx.globalAlpha = 0.6 + f.depth * 0.4;
+
+    f.draw(ctx, f, tailWag);
+    ctx.restore();
+  }
+
+  // ── Bubbles ──
+  bubbleTimer++;
+  if (bubbleTimer > 4) {
+    spawnBubble();
+    if (Math.random() < 0.3) spawnBubble();
+    bubbleTimer = 0;
+  }
+
+  for (let i = bubbles.length - 1; i >= 0; i--) {
+    const b = bubbles[i];
+    b.y -= b.speed;
+    b.x += Math.sin(t * b.wobbleSpeed + b.wobblePhase) * 0.5;
+    b.opacity -= 0.001;
+
+    if (b.y < -20 || b.opacity <= 0) {
+      bubbles.splice(i, 1);
+      continue;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = b.opacity;
+    // Bubble body
+    const bGrad = ctx.createRadialGradient(b.x - b.r * 0.3, b.y - b.r * 0.3, 0, b.x, b.y, b.r);
+    bGrad.addColorStop(0, 'rgba(200,255,255,0.4)');
+    bGrad.addColorStop(0.7, 'rgba(150,220,255,0.15)');
+    bGrad.addColorStop(1, 'rgba(150,220,255,0.05)');
+    ctx.fillStyle = bGrad;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.fill();
+    // Highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.beginPath();
+    ctx.arc(b.x - b.r * 0.25, b.y - b.r * 0.25, b.r * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // ── Vignette overlay ──
+  const vigGrad = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.7);
+  vigGrad.addColorStop(0, 'rgba(0,0,0,0)');
+  vigGrad.addColorStop(1, 'rgba(0,15,20,0.35)');
+  ctx.fillStyle = vigGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Glass reflection at top ──
+  const reflGrad = ctx.createLinearGradient(0, 0, 0, 40);
+  reflGrad.addColorStop(0, 'rgba(200,255,255,0.06)');
+  reflGrad.addColorStop(1, 'rgba(200,255,255,0)');
+  ctx.fillStyle = reflGrad;
+  ctx.fillRect(0, 0, W, 40);
+
+  requestAnimationFrame(draw);
+}
+
+draw();
+</script>
+</body>
+</html>
