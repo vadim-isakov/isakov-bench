@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 echo "==> Generating video thumbnails..."
-uv run generate_thumbnails.py
+uv run --group dev generate_thumbnails.py
 
 echo "==> Generating index.html..."
-uv run generate.py
+uv run --group dev generate.py

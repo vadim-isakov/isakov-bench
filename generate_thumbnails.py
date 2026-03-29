@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.10"
-# dependencies = ["playwright"]
-# ///
 """
 Generate WebM video thumbnails for each result HTML using Playwright's
 built-in video recording + ffmpeg for final encoding.
