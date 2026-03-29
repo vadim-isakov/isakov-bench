@@ -8,13 +8,13 @@
   "results/pour/droid--glm-5--20260329.html": {
     "durationMs": 147431
   },
-  "results/balloon/droid--claude-haiku-4-5-20251001--20260329.html": {
+  "results/balloon/droid--haiku-4.5--20260329.html": {
     "durationMs": 33814
   },
-  "results/pour/droid--claude-haiku-4-5-20251001--20260329.html": {
+  "results/pour/droid--haiku-4.5--20260329.html": {
     "durationMs": 41555
   },
-  "results/fish/droid--claude-haiku-4-5-20251001--20260329.html": {
+  "results/fish/droid--haiku-4.5--20260329.html": {
     "durationMs": 44690
   }
 }

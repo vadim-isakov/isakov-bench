@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>isakov-bench — AI Coding Agent Visual Benchmark</title>
 <meta name="description" content="Side-by-side visual benchmark comparing AI coding agents — Droid, Claude Code, Cursor and more — on creative HTML/CSS/JS prompts.">
-<meta name="keywords" content="AI benchmark, coding agents, HTML CSS JS, claude-code haiku-4.5, claude-code opus-4.6, cursor composer-2, droid claude-haiku-4-5-20251001, droid glm-5, droid glm-5.1, droid haiku-4.5, droid opus-4.6, droid-openspec opus-4.6, balloon, fish, pour">
+<meta name="keywords" content="AI benchmark, coding agents, HTML CSS JS, claude-code haiku-4.5, claude-code opus-4.6, cursor composer-2, droid glm-5, droid glm-5.1, droid haiku-4.5, droid opus-4.6, droid-openspec opus-4.6, balloon, fish, pour">
 <link rel="canonical" href="https://isakov-bench.github.io/">
 <meta property="og:type" content="website">
 <meta property="og:title" content="isakov-bench — AI Coding Agent Visual Benchmark">
@@ -140,7 +140,10 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .cell-thumb video {
     width: 100%; height: 100%; object-fit: cover; border: none;
-    position: relative; z-index: 1;
+    position: relative; z-index: 1; opacity: 0; visibility: hidden;
+  }
+  .cell-thumb.loaded video {
+    opacity: 1; visibility: visible;
   }
   .cell-thumb iframe {
     width: 400%; height: 400%; border: none; pointer-events: none;
@@ -185,7 +188,7 @@
   }
   .lightbox-close:hover { color: #fff; }
   .lightbox iframe {
-    width: 90vw; height: 85vh; border: none; border-radius: 8px; background: #fff;
+    width: 90vw; height: 85vh; border: none; border-radius: 8px; background: #1a1a1a;
   }
   .lightbox.loading iframe { opacity: 0; }
   .lightbox.loading::after {
@@ -299,7 +302,7 @@
   </div>
 
 <script>
-const DATA = {"prompts":["balloon","fish","pour"],"agents":["claude-code","cursor","droid","droid-openspec"],"results":[{"prompt":"balloon","agent":"claude-code","model":"haiku-4.5","date":"20260317","file":"claude-code--haiku-4.5--20260317.html"},{"prompt":"balloon","agent":"claude-code","model":"opus-4.6","date":"20260317","file":"claude-code--opus-4.6--20260317.html"},{"prompt":"balloon","agent":"cursor","model":"composer-2","date":"20260321","file":"cursor--composer-2--20260321.html"},{"prompt":"balloon","agent":"droid","model":"claude-haiku-4-5-20251001","date":"20260329","file":"droid--claude-haiku-4-5-20251001--20260329.html"},{"prompt":"balloon","agent":"droid","model":"glm-5","date":"20260317","file":"droid--glm-5--20260317.html"},{"prompt":"balloon","agent":"droid","model":"glm-5","date":"20260329","file":"droid--glm-5--20260329.html"},{"prompt":"balloon","agent":"droid","model":"glm-5.1","date":"20260329","file":"droid--glm-5.1--20260329.html"},{"prompt":"balloon","agent":"droid","model":"haiku-4.5","date":"20260317","file":"droid--haiku-4.5--20260317.html"},{"prompt":"balloon","agent":"droid","model":"opus-4.6","date":"20260317","file":"droid--opus-4.6--20260317.html"},{"prompt":"balloon","agent":"droid","model":"opus-4.6","date":"20260329","file":"droid--opus-4.6--20260329.html"},{"prompt":"fish","agent":"cursor","model":"composer-2","date":"20260321","file":"cursor--composer-2--20260321.html"},{"prompt":"fish","agent":"droid","model":"claude-haiku-4-5-20251001","date":"20260329","file":"droid--claude-haiku-4-5-20251001--20260329.html"},{"prompt":"fish","agent":"droid","model":"glm-5","date":"20260329","file":"droid--glm-5--20260329.html"},{"prompt":"fish","agent":"droid","model":"glm-5.1","date":"20260329","file":"droid--glm-5.1--20260329.html"},{"prompt":"fish","agent":"droid","model":"opus-4.6","date":"20260329","file":"droid--opus-4.6--20260329.html"},{"prompt":"pour","agent":"claude-code","model":"opus-4.6","date":"20260317","file":"claude-code--opus-4.6--20260317.html"},{"prompt":"pour","agent":"cursor","model":"composer-2","date":"20260321","file":"cursor--composer-2--20260321.html"},{"prompt":"pour","agent":"droid","model":"claude-haiku-4-5-20251001","date":"20260329","file":"droid--claude-haiku-4-5-20251001--20260329.html"},{"prompt":"pour","agent":"droid","model":"glm-5","date":"20260329","file":"droid--glm-5--20260329.html"},{"prompt":"pour","agent":"droid","model":"glm-5.1","date":"20260329","file":"droid--glm-5.1--20260329.html"},{"prompt":"pour","agent":"droid","model":"opus-4.6","date":"20260317","file":"droid--opus-4.6--20260317.html"},{"prompt":"pour","agent":"droid","model":"opus-4.6","date":"20260329","file":"droid--opus-4.6--20260329.html"},{"prompt":"pour","agent":"droid-openspec","model":"opus-4.6","date":"20260318","file":"droid-openspec--opus-4.6--20260318.html"}]};
+const DATA = {"prompts":["balloon","fish","pour"],"agents":["claude-code","cursor","droid","droid-openspec"],"results":[{"prompt":"balloon","agent":"claude-code","model":"haiku-4.5","date":"20260317","file":"claude-code--haiku-4.5--20260317.html"},{"prompt":"balloon","agent":"claude-code","model":"opus-4.6","date":"20260317","file":"claude-code--opus-4.6--20260317.html"},{"prompt":"balloon","agent":"cursor","model":"composer-2","date":"20260321","file":"cursor--composer-2--20260321.html"},{"prompt":"balloon","agent":"droid","model":"glm-5","date":"20260317","file":"droid--glm-5--20260317.html"},{"prompt":"balloon","agent":"droid","model":"glm-5","date":"20260329","file":"droid--glm-5--20260329.html"},{"prompt":"balloon","agent":"droid","model":"glm-5.1","date":"20260329","file":"droid--glm-5.1--20260329.html"},{"prompt":"balloon","agent":"droid","model":"haiku-4.5","date":"20260317","file":"droid--haiku-4.5--20260317.html"},{"prompt":"balloon","agent":"droid","model":"haiku-4.5","date":"20260329","file":"droid--haiku-4.5--20260329.html"},{"prompt":"balloon","agent":"droid","model":"opus-4.6","date":"20260317","file":"droid--opus-4.6--20260317.html"},{"prompt":"balloon","agent":"droid","model":"opus-4.6","date":"20260329","file":"droid--opus-4.6--20260329.html"},{"prompt":"fish","agent":"cursor","model":"composer-2","date":"20260321","file":"cursor--composer-2--20260321.html"},{"prompt":"fish","agent":"droid","model":"glm-5","date":"20260329","file":"droid--glm-5--20260329.html"},{"prompt":"fish","agent":"droid","model":"glm-5.1","date":"20260329","file":"droid--glm-5.1--20260329.html"},{"prompt":"fish","agent":"droid","model":"haiku-4.5","date":"20260329","file":"droid--haiku-4.5--20260329.html"},{"prompt":"fish","agent":"droid","model":"opus-4.6","date":"20260329","file":"droid--opus-4.6--20260329.html"},{"prompt":"pour","agent":"claude-code","model":"opus-4.6","date":"20260317","file":"claude-code--opus-4.6--20260317.html"},{"prompt":"pour","agent":"cursor","model":"composer-2","date":"20260321","file":"cursor--composer-2--20260321.html"},{"prompt":"pour","agent":"droid","model":"glm-5","date":"20260329","file":"droid--glm-5--20260329.html"},{"prompt":"pour","agent":"droid","model":"glm-5.1","date":"20260329","file":"droid--glm-5.1--20260329.html"},{"prompt":"pour","agent":"droid","model":"haiku-4.5","date":"20260329","file":"droid--haiku-4.5--20260329.html"},{"prompt":"pour","agent":"droid","model":"opus-4.6","date":"20260317","file":"droid--opus-4.6--20260317.html"},{"prompt":"pour","agent":"droid","model":"opus-4.6","date":"20260329","file":"droid--opus-4.6--20260329.html"},{"prompt":"pour","agent":"droid-openspec","model":"opus-4.6","date":"20260318","file":"droid-openspec--opus-4.6--20260318.html"}]};
 const PROMPTS = {"balloon":"Create a single HTML file with a full-screen animated hot air balloon floating over a mountain landscape. Use only HTML, CSS, and vanilla JavaScript (no libraries). The balloon should have a colorful striped pattern and gently bob and sway as it drifts horizontally across the scene. Below, show layered parallax mountains in different shades (foreground darker, background lighter) to create depth. Include drifting clouds, birds flying in the distance, and a warm sunrise/sunset gradient sky. The flame inside the balloon should periodically burst to keep it aloft. Use canvas or SVG. Make it serene and beautiful.\n","fish":"Create a single HTML file with a full-screen animated tropical fish tank. Use only HTML, CSS, and vanilla JavaScript (no libraries). Include 5-8 colorful fish of different species swimming at different speeds and depths with natural turning and movement patterns. Add swaying aquatic plants, bubbles rising from an aerator, small pebbles on the bottom, and gentle caustic light patterns rippling across the scene. The water should have a slight blue-green tint with light filtering down from above. Use canvas or SVG. Make it peaceful and alive.\n","pour":"Create a single HTML file with a full-screen animated scene of coffee being poured from a pot into a white ceramic mug. Use only HTML, CSS, and vanilla JavaScript (no libraries). Show the stream of dark coffee flowing in a realistic arc, the mug filling up, steam rising and curling from the surface, and a slight ripple/splash where the stream hits the liquid. The scene should be on a wooden kitchen counter with soft morning light coming from one side. After the mug fills, the pour stops and steam continues rising. Use canvas or SVG. Make it cozy and visually satisfying.\n"};
 const activePrompts = new Set();
 const activeAgents = new Set();
@@ -422,7 +425,7 @@ function setupLazyLoading() {
           video.loop = true;
           video.muted = true;
           video.playsInline = true;
-          video.addEventListener('playing', () => thumb.classList.add('loaded'), { once: true });
+          video.addEventListener('playing', () => requestAnimationFrame(() => requestAnimationFrame(() => thumb.classList.add('loaded'))), { once: true });
           thumb.appendChild(video);
         } else if (video && video.paused) {
           video.play().catch(() => {});
@@ -453,7 +456,8 @@ function getGroupedColumns() {
     if (!modelMap[model]) modelMap[model] = [];
     modelMap[model].push(col);
   }
-  const modelOrder = Object.keys(modelMap).sort();
+  const MODEL_RANK = {'haiku-4.5':0,'composer-2':1,'glm-5':2,'glm-5.1':3,'opus-4.6':4};
+  const modelOrder = Object.keys(modelMap).sort((a,b) => (MODEL_RANK[a] ?? 99) - (MODEL_RANK[b] ?? 99));
   const columns = [];
   const modelGroups = [];
   for (const model of modelOrder) {
@@ -561,7 +565,7 @@ function renderMatrix() {
       video.loop = true;
       video.muted = true;
       video.playsInline = true;
-      video.addEventListener('playing', () => thumb.classList.add('loaded'), { once: true });
+      video.addEventListener('playing', () => requestAnimationFrame(() => requestAnimationFrame(() => thumb.classList.add('loaded'))), { once: true });
       video.src = thumb.dataset.thumb;
       thumb.appendChild(video);
     });
@@ -674,7 +678,8 @@ function loadFilters() {
     const da = JSON.parse(localStorage.getItem('isakov-bench-disabled-agents'));
     const dm = JSON.parse(localStorage.getItem('isakov-bench-disabled-models'));
     if (dp) dp.forEach(v => activePrompts.delete(v));
-    if (da) da.forEach(v => activeAgents.delete(v));
+    if (da !== null) da.forEach(v => activeAgents.delete(v));
+    else getAllAgentNames().filter(a => a !== 'cursor' && a !== 'droid').forEach(a => activeAgents.delete(a));
     if (dm) dm.forEach(v => activeModels.delete(v));
   } catch(e) {}
 }

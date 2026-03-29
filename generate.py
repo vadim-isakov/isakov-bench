@@ -214,7 +214,10 @@ def generate_html(data, prompts_map):
   @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
   .cell-thumb video {{
     width: 100%; height: 100%; object-fit: cover; border: none;
-    position: relative; z-index: 1;
+    position: relative; z-index: 1; opacity: 0; visibility: hidden;
+  }}
+  .cell-thumb.loaded video {{
+    opacity: 1; visibility: visible;
   }}
   .cell-thumb iframe {{
     width: 400%; height: 400%; border: none; pointer-events: none;
@@ -259,7 +262,7 @@ def generate_html(data, prompts_map):
   }}
   .lightbox-close:hover {{ color: #fff; }}
   .lightbox iframe {{
-    width: 90vw; height: 85vh; border: none; border-radius: 8px; background: #fff;
+    width: 90vw; height: 85vh; border: none; border-radius: 8px; background: #1a1a1a;
   }}
   .lightbox.loading iframe {{ opacity: 0; }}
   .lightbox.loading::after {{
@@ -496,7 +499,7 @@ function setupLazyLoading() {{
           video.loop = true;
           video.muted = true;
           video.playsInline = true;
-          video.addEventListener('playing', () => thumb.classList.add('loaded'), {{ once: true }});
+          video.addEventListener('playing', () => requestAnimationFrame(() => requestAnimationFrame(() => thumb.classList.add('loaded'))), {{ once: true }});
           thumb.appendChild(video);
         }} else if (video && video.paused) {{
           video.play().catch(() => {{}});
@@ -527,7 +530,8 @@ function getGroupedColumns() {{
     if (!modelMap[model]) modelMap[model] = [];
     modelMap[model].push(col);
   }}
-  const modelOrder = Object.keys(modelMap).sort();
+  const MODEL_RANK = {{'haiku-4.5':0,'composer-2':1,'glm-5':2,'glm-5.1':3,'opus-4.6':4}};
+  const modelOrder = Object.keys(modelMap).sort((a,b) => (MODEL_RANK[a] ?? 99) - (MODEL_RANK[b] ?? 99));
   const columns = [];
   const modelGroups = [];
   for (const model of modelOrder) {{
@@ -635,7 +639,7 @@ function renderMatrix() {{
       video.loop = true;
       video.muted = true;
       video.playsInline = true;
-      video.addEventListener('playing', () => thumb.classList.add('loaded'), {{ once: true }});
+      video.addEventListener('playing', () => requestAnimationFrame(() => requestAnimationFrame(() => thumb.classList.add('loaded'))), {{ once: true }});
       video.src = thumb.dataset.thumb;
       thumb.appendChild(video);
     }});
@@ -748,7 +752,8 @@ function loadFilters() {{
     const da = JSON.parse(localStorage.getItem('isakov-bench-disabled-agents'));
     const dm = JSON.parse(localStorage.getItem('isakov-bench-disabled-models'));
     if (dp) dp.forEach(v => activePrompts.delete(v));
-    if (da) da.forEach(v => activeAgents.delete(v));
+    if (da !== null) da.forEach(v => activeAgents.delete(v));
+    else getAllAgentNames().filter(a => a !== 'cursor' && a !== 'droid').forEach(a => activeAgents.delete(a));
     if (dm) dm.forEach(v => activeModels.delete(v));
   }} catch(e) {{}}
 }}
