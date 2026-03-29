@@ -179,8 +179,20 @@ def generate_html(data, prompts_map):
   }}
   .cell-entry:hover {{ transform: scale(1.02); }}
   .cell-thumb {{
-    width: 100%; aspect-ratio: 4/3; border: 1px solid #2a2a2a; border-radius: 6px;
-    overflow: hidden; background: #fff; margin-bottom: 4px; position: relative;
+    max-width: 250px; max-height: 200px; aspect-ratio: 5/4; border: 1px solid #2a2a2a; border-radius: 6px;
+    overflow: hidden; background: #111; margin-bottom: 4px; position: relative; margin-left: auto; margin-right: auto;
+  }}
+  .cell-thumb::before {{
+    content: ''; position: absolute; top: 50%; left: 50%;
+    width: 24px; height: 24px; margin: -12px 0 0 -12px;
+    border: 2px solid #333; border-top-color: #888; border-radius: 50%;
+    animation: spin 0.8s linear infinite; z-index: 0;
+  }}
+  .cell-thumb.loaded::before {{ display: none; }}
+  @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+  .cell-thumb video {{
+    width: 100%; height: 100%; object-fit: cover; border: none;
+    position: relative; z-index: 1;
   }}
   .cell-thumb iframe {{
     width: 400%; height: 400%; border: none; pointer-events: none;
@@ -347,8 +359,9 @@ function restartIframe(iframe) {{
 }}
 
 document.getElementById('restartAll').addEventListener('click', () => {{
-  document.getElementById('matrixView').querySelectorAll('iframe[src]').forEach(iframe => {{
-    if (iframe.src && iframe.src !== 'about:blank') restartIframe(iframe);
+  document.getElementById('matrixView').querySelectorAll('.cell-thumb video').forEach(video => {{
+    video.currentTime = 0;
+    video.play().catch(() => {{}});
   }});
 }});
 
@@ -403,17 +416,31 @@ function setupLazyLoading() {{
   if (observer) observer.disconnect();
   observer = new IntersectionObserver((entries) => {{
     entries.forEach(entry => {{
-      if (!entry.isIntersecting) return;
       const thumb = entry.target;
-      if (thumb.querySelector('iframe')) return;
-      const src = thumb.dataset.src;
-      if (!src) return;
-      const iframe = document.createElement('iframe');
-      iframe.sandbox = 'allow-scripts allow-same-origin';
-      iframe.src = src;
-      const placeholder = thumb.querySelector('.iframe-placeholder');
-      if (placeholder) placeholder.remove();
-      thumb.appendChild(iframe);
+      if (entry.isIntersecting) {{
+        let video = thumb.querySelector('video');
+        if (!video && thumb.dataset.thumb) {{
+          video = document.createElement('video');
+          video.src = thumb.dataset.thumb;
+          video.autoplay = true;
+          video.loop = true;
+          video.muted = true;
+          video.playsInline = true;
+          video.addEventListener('playing', () => thumb.classList.add('loaded'), {{ once: true }});
+          thumb.appendChild(video);
+        }} else if (video && video.paused) {{
+          video.play().catch(() => {{}});
+        }}
+      }} else {{
+        const video = thumb.querySelector('video');
+        if (video) {{
+          video.pause();
+          video.removeAttribute('src');
+          video.load();
+          video.remove();
+          thumb.classList.remove('loaded');
+        }}
+      }}
     }});
   }}, {{ rootMargin: '200px' }});
   document.querySelectorAll('.cell-thumb').forEach(el => observer.observe(el));
@@ -481,7 +508,9 @@ function renderMatrix() {{
         const path = prompt + '/' + latest.file;
         const label = friendlyName(latest.agent, latest.model);
         html += '<td><div class="cell-entry" data-path="' + path + '" data-title="' + label + ' / ' + prompt + '" data-prompt="' + prompt + '" data-agent="' + resultKey(latest) + '">';
-        html += '<div class="cell-thumb" data-src="results/' + path + '"><div class="iframe-placeholder">Loading...</div></div>';
+        const thumbStem = latest.file.replace(/\\.html$/, '');
+        const thumbPath = 'thumbs/' + prompt + '/' + thumbStem + '.webm';
+        html += '<div class="cell-thumb" data-src="results/' + path + '" data-thumb="' + thumbPath + '"></div>';
         html += '<div class="cell-controls">';
         if (entries.length === 1) {{
           html += '<span class="cell-date">' + formatDate(latest.date) + '</span>';
@@ -519,9 +548,12 @@ function renderMatrix() {{
       const entry = sel.closest('.cell-entry');
       const thumb = entry.querySelector('.cell-thumb');
       thumb.dataset.src = 'results/' + sel.value;
-      const iframe = thumb.querySelector('iframe');
-      if (iframe) iframe.src = 'results/' + sel.value;
       entry.dataset.path = sel.value;
+      const parts = sel.value.split('/');
+      const stem = parts[1].replace(/\\.html$/, '');
+      thumb.dataset.thumb = 'thumbs/' + parts[0] + '/' + stem + '.webm';
+      const video = thumb.querySelector('video');
+      if (video) video.src = thumb.dataset.thumb;
     }});
   }});
 
