@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coffee Pour - Cozy Animation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+            background: #f5f1e8;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .ui-overlay {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            text-align: center;
+        }
+
+        .button {
+            background: rgba(101, 67, 33, 0.8);
+            color: #f5f1e8;
+            border: 2px solid #654321;
+            padding: 12px 30px;
+            font-size: 16px;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 0 10px;
+        }
+
+        .button:hover {
+            background: rgba(101, 67, 33, 1);
+            transform: scale(1.05);
+        }
+
+        .button:active {
+            transform: scale(0.98);
+        }
+
+        .info {
+            color: #654321;
+            font-size: 14px;
+            margin-top: 15px;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div class="ui-overlay">
+        <button class="button" id="resetBtn">Reset Pour</button>
+        <button class="button" id="autoBtn">Auto Replay</button>
+        <div class="info">Click Reset or Auto Replay to see the animation</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // Scene parameters
+        const scene = {
+            // Lighting
+            ambientLight: { x: 1, y: -0.5, color: 'rgba(255, 220, 180, 0.3)' },
+            
+            // Wooden counter
+            counterY: canvas.height * 0.65,
+            counterColor: '#8B6F47',
+            counterHighlight: '#A0826D',
+            
+            // Mug position and state
+            mug: {
+                x: canvas.width * 0.55,
+                y: canvas.height * 0.52,
+                width: 100,
+                height: 120,
+                fillLevel: 0,
+                targetFillLevel: 0,
+                maxFillLevel: 0.85,
+                color: '#f5f5f5',
+                rimColor: '#e8e8e8',
+                rimWidth: 8,
+                shadowColor: 'rgba(101, 67, 33, 0.15)'
+            },
+            
+            // Coffee pot
+            pot: {
+                x: canvas.width * 0.25,
+                y: canvas.height * 0.35,
+                width: 80,
+                height: 100,
+                spoutX: 0,
+                spoutY: 0,
+                color: '#1a1a1a'
+            },
+            
+            // Pour stream
+            stream: {
+                startX: 0,
+                startY: 0,
+                width: 12,
+                particles: [],
+                isPouring: false,
+                pourDuration: 3500, // milliseconds
+                pourDelay: 500
+            },
+            
+            // Steam
+            steam: {
+                particles: [],
+                maxParticles: 40,
+                color: 'rgba(200, 200, 200, 0.4)'
+            },
+            
+            // Animation state
+            time: 0,
+            isAnimating: false,
+            startTime: 0,
+            autoReplay: false,
+            autoReplayDelay: 6000
+        };
+
+        // Particle system for coffee stream
+        class StreamParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 8;
+                this.vy = 6 + Math.random() * 3;
+                this.opacity = 1;
+                this.life = 1;
+            }
+
+            update(dt) {
+                this.x += this.vx * dt;
+                this.y += this.vy * dt;
+                this.vy += 15 * dt; // gravity
+                this.life -= dt * 1.5;
+                this.opacity = Math.max(0, this.life);
+            }
+
+            draw(ctx) {
+                ctx.fillStyle = `rgba(101, 67, 33, ${this.opacity * 0.6})`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // Particle system for steam
+        class SteamParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 20;
+                this.vy = -20 - Math.random() * 30;
+                this.size = 20 + Math.random() * 40;
+                this.opacity = 0.3;
+                this.life = 1;
+                this.rotation = Math.random() * Math.PI * 2;
+                this.rotationSpeed = (Math.random() - 0.5) * 0.1;
+            }
+
+            update(dt) {
+                this.x += this.vx * dt;
+                this.y += this.vy * dt;
+                this.vx *= 0.95; // air resistance
+                this.vy *= 0.95;
+                this.size += 30 * dt;
+                this.opacity = Math.max(0, this.life * 0.5);
+                this.life -= dt * 0.8;
+                this.rotation += this.rotationSpeed * dt;
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.globalAlpha = this.opacity;
+                ctx.fillStyle = '#e8e8e8';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // Draw wooden counter with texture
+        function drawCounter() {
+            // Main counter surface
+            ctx.fillStyle = scene.counterColor;
+            ctx.fillRect(0, scene.counterY, canvas.width, canvas.height - scene.counterY);
+
+            // Wood grain texture
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+            for (let i = 0; i < 5; i++) {
+                const y = scene.counterY + Math.random() * 100;
+                ctx.fillRect(0, y, canvas.width, Math.random() * 3 + 1);
+            }
+
+            // Highlight from morning light
+            const gradient = ctx.createLinearGradient(0, scene.counterY, 0, scene.counterY + 80);
+            gradient.addColorStop(0, 'rgba(255, 220, 180, 0.2)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, scene.counterY, canvas.width, 80);
+
+            // Shadow under mug
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.beginPath();
+            ctx.ellipse(scene.mug.x, scene.counterY + 10, 80, 15, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Shadow under pot
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
+            ctx.beginPath();
+            ctx.ellipse(scene.pot.x, scene.counterY + 5, 60, 12, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Draw coffee pot
+        function drawPot() {
+            const pot = scene.pot;
+            
+            // Calculate spout position
+            pot.spoutX = pot.x + 60;
+            pot.spoutY = pot.y + 30;
+
+            // Pot body
+            ctx.fillStyle = pot.color;
+            ctx.beginPath();
+            ctx.ellipse(pot.x, pot.y + 20, 35, 25, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Pot body shadow
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.beginPath();
+            ctx.ellipse(pot.x, pot.y + 40, 35, 15, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Handle
+            ctx.strokeStyle = pot.color;
+            ctx.lineWidth = 12;
+            ctx.beginPath();
+            ctx.arc(pot.x, pot.y + 20, 30, 0, Math.PI, false);
+            ctx.stroke();
+
+            // Spout
+            ctx.fillStyle = pot.color;
+            ctx.beginPath();
+            ctx.ellipse(pot.spoutX, pot.spoutY, 8, 6, 0.3, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Rim highlight
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(pot.x, pot.y - 5, 32, 20, 0, 0, Math.PI);
+            ctx.stroke();
+        }
+
+        // Draw coffee liquid in pot
+        function drawPotCoffee() {
+            const pot = scene.pot;
+            ctx.fillStyle = '#3d2817';
+            ctx.beginPath();
+            ctx.ellipse(pot.x, pot.y + 20, 30, 20, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Draw the coffee mug
+        function drawMug() {
+            const mug = scene.mug;
+
+            // Mug shadow (under rim)
+            ctx.fillStyle = mug.shadowColor;
+            ctx.beginPath();
+            ctx.ellipse(mug.x, mug.y - 10, mug.width / 2 - 5, 8, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Mug body
+            ctx.fillStyle = mug.color;
+            ctx.beginPath();
+            ctx.moveTo(mug.x - mug.width / 2, mug.y);
+            ctx.lineTo(mug.x - mug.width / 2 + 8, mug.y + mug.height);
+            ctx.lineTo(mug.x + mug.width / 2 - 8, mug.y + mug.height);
+            ctx.lineTo(mug.x + mug.width / 2, mug.y);
+            ctx.closePath();
+            ctx.fill();
+
+            // Mug rim
+            ctx.fillStyle = mug.rimColor;
+            ctx.beginPath();
+            ctx.ellipse(mug.x, mug.y, mug.width / 2, mug.rimWidth / 2, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Rim highlight
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(mug.x, mug.y - 2, mug.width / 2 - 3, mug.rimWidth / 3, 0, 0, Math.PI);
+            ctx.stroke();
+
+            // Handle
+            ctx.strokeStyle = mug.color;
+            ctx.lineWidth = 10;
+            ctx.beginPath();
+            ctx.arc(mug.x + mug.width / 2 + 15, mug.y + mug.height / 2, 25, -Math.PI * 0.3, Math.PI * 0.3, false);
+            ctx.stroke();
+
+            // Handle shadow
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.lineWidth = 8;
+            ctx.beginPath();
+            ctx.arc(mug.x + mug.width / 2 + 18, mug.y + mug.height / 2 + 3, 25, -Math.PI * 0.3, Math.PI * 0.3, false);
+            ctx.stroke();
+        }
+
+        // Draw coffee liquid in mug
+        function drawCoffeeLiquid() {
+            const mug = scene.mug;
+            const fillHeight = mug.height * mug.fillLevel;
+            const surfaceY = mug.y + mug.height - fillHeight;
+
+            // Coffee body
+            ctx.fillStyle = '#3d2817';
+            ctx.beginPath();
+            ctx.moveTo(mug.x - mug.width / 2 + 8, mug.y + mug.height);
+            ctx.lineTo(mug.x - mug.width / 2 + 8 + (mug.width - 16) * (1 - mug.fillLevel), surfaceY);
+            ctx.lineTo(mug.x + mug.width / 2 - 8 - (mug.width - 16) * (1 - mug.fillLevel), surfaceY);
+            ctx.lineTo(mug.x + mug.width / 2 - 8, mug.y + mug.height);
+            ctx.closePath();
+            ctx.fill();
+
+            // Coffee surface with slight wave
+            ctx.fillStyle = '#2d1810';
+            ctx.beginPath();
+            ctx.moveTo(mug.x - mug.width / 2 + 8, surfaceY);
+            const waveAmount = 3;
+            const waveFreq = 0.02;
+            for (let i = 0; i < mug.width - 16; i++) {
+                const x = mug.x - mug.width / 2 + 8 + i;
+                const y = surfaceY + Math.sin(i * waveFreq + scene.time * 0.008) * waveAmount;
+                ctx.lineTo(x, y);
+            }
+            ctx.lineTo(mug.x + mug.width / 2 - 8, surfaceY);
+            ctx.closePath();
+            ctx.fill();
+
+            // Highlights on surface
+            ctx.fillStyle = 'rgba(255, 200, 150, 0.15)';
+            ctx.beginPath();
+            ctx.ellipse(mug.x - 15, surfaceY - 3, 25, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Draw coffee stream
+        function drawStream() {
+            if (!scene.stream.isPouring || scene.mug.fillLevel >= scene.mug.maxFillLevel) {
+                return;
+            }
+
+            const pot = scene.pot;
+            const stream = scene.stream;
+            
+            stream.startX = pot.spoutX;
+            stream.startY = pot.spoutY;
+
+            // Calculate arc to mug
+            const mug = scene.mug;
+            const targetX = mug.x;
+            const targetY = mug.y + mug.height / 2;
+
+            // Quadratic arc
+            const steps = 30;
+            ctx.strokeStyle = '#5c3d2e';
+            ctx.lineWidth = stream.width;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(stream.startX, stream.startY);
+
+            for (let i = 0; i <= steps; i++) {
+                const t = i / steps;
+                const x = Math.pow(1 - t, 2) * stream.startX + 
+                         2 * (1 - t) * t * (stream.startX + 40) + 
+                         Math.pow(t, 2) * targetX;
+                const y = Math.pow(1 - t, 2) * stream.startY + 
+                         2 * (1 - t) * t * (stream.startY + 80) + 
+                         Math.pow(t, 2) * targetY;
+                ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // Stream glow
+            ctx.strokeStyle = 'rgba(93, 61, 46, 0.2)';
+            ctx.lineWidth = stream.width + 6;
+            ctx.beginPath();
+            ctx.moveTo(stream.startX, stream.startY);
+            for (let i = 0; i <= steps; i++) {
+                const t = i / steps;
+                const x = Math.pow(1 - t, 2) * stream.startX + 
+                         2 * (1 - t) * t * (stream.startX + 40) + 
+                         Math.pow(t, 2) * targetX;
+                const y = Math.pow(1 - t, 2) * stream.startY + 
+                         2 * (1 - t) * t * (stream.startY + 80) + 
+                         Math.pow(t, 2) * targetY;
+                ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+
+        // Draw splash/ripple effect
+        function drawSplash() {
+            if (!scene.stream.isPouring || scene.mug.fillLevel >= scene.mug.maxFillLevel) {
+                return;
+            }
+
+            const mug = scene.mug;
+            const surfaceY = mug.y + mug.height - (mug.height * mug.fillLevel);
+            const time = (scene.time * 0.01) % (Math.PI * 2);
+
+            // Multiple ripples
+            for (let i = 1; i <= 3; i++) {
+                const radius = 15 + Math.sin(time - i * 0.5) * 10;
+                const opacity = Math.max(0, 1 - (time % (Math.PI * 2)) / (Math.PI * 2)) * 0.3;
+                
+                ctx.strokeStyle = `rgba(255, 200, 150, ${opacity})`;
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.arc(mug.x, surfaceY, radius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            // Small splash particles
+            for (let i = 0; i < 5; i++) {
+                const angle = (time * 2 + i * Math.PI * 2 / 5) % (Math.PI * 2);
+                const px = mug.x + Math.cos(angle) * 20;
+                const py = surfaceY + Math.sin(angle) * 8;
+                ctx.fillStyle = 'rgba(61, 40, 23, 0.2)';
+                ctx.beginPath();
+                ctx.arc(px, py, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // Update animation state
+        function updateAnimation(dt) {
+            if (!scene.isAnimating) return;
+
+            const elapsed = scene.time - scene.startTime;
+            const total = scene.stream.pourDelay + scene.stream.pourDuration + 2000;
+
+            // Start pouring
+            if (elapsed >= scene.stream.pourDelay && !scene.stream.isPouring) {
+                scene.stream.isPouring = true;
+            }
+
+            // Pour coffee
+            if (scene.stream.isPouring) {
+                const pourElapsed = elapsed - scene.stream.pourDelay;
+                const pourProgress = Math.min(1, pourElapsed / scene.stream.pourDuration);
+                scene.mug.targetFillLevel = scene.mug.maxFillLevel * pourProgress;
+
+                if (pourProgress >= 1) {
+                    scene.stream.isPouring = false;
+                }
+            }
+
+            // Smooth fill level
+            scene.mug.fillLevel += (scene.mug.targetFillLevel - scene.mug.fillLevel) * 0.15;
+
+            // Add stream particles
+            if (scene.stream.isPouring) {
+                for (let i = 0; i < 2; i++) {
+                    const pot = scene.pot;
+                    const particle = new StreamParticle(
+                        pot.spoutX + (Math.random() - 0.5) * 6,
+                        pot.spoutY + (Math.random() - 0.5) * 4
+                    );
+                    scene.stream.particles.push(particle);
+                }
+            }
+
+            // Add steam particles
+            if (scene.mug.fillLevel > 0.1) {
+                if (scene.steam.particles.length < scene.steam.maxParticles) {
+                    const mug = scene.mug;
+                    const surfaceY = mug.y + mug.height - (mug.height * mug.fillLevel);
+                    const steamX = mug.x + (Math.random() - 0.5) * 40;
+                    const particle = new SteamParticle(steamX, surfaceY);
+                    scene.steam.particles.push(particle);
+                }
+            }
+
+            // Update particles
+            scene.stream.particles = scene.stream.particles.filter(p => {
+                p.update(dt);
+                return p.life > 0;
+            });
+
+            scene.steam.particles = scene.steam.particles.filter(p => {
+                p.update(dt);
+                return p.life > 0;
+            });
+
+            // End animation
+            if (elapsed > total) {
+                scene.isAnimating = false;
+                if (scene.autoReplay) {
+                    setTimeout(() => startAnimation(), scene.autoReplayDelay);
+                }
+            }
+        }
+
+        // Main render loop
+        let lastTime = Date.now();
+        function render() {
+            const now = Date.now();
+            const dt = Math.min((now - lastTime) / 1000, 0.05); // Cap dt
+            lastTime = now;
+
+            scene.time = now;
+            updateAnimation(dt);
+
+            // Clear canvas with soft background
+            const bgGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            bgGradient.addColorStop(0, '#f9f6f0');
+            bgGradient.addColorStop(1, '#f0e9dd');
+            ctx.fillStyle = bgGradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Soft morning light
+            const lightGradient = ctx.createRadialGradient(
+                canvas.width * 0.15, canvas.height * 0.2, 0,
+                canvas.width * 0.5, canvas.height * 0.5, canvas.width
+            );
+            lightGradient.addColorStop(0, 'rgba(255, 220, 150, 0.15)');
+            lightGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = lightGradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw scene
+            drawCounter();
+            drawPot();
+            drawPotCoffee();
+            drawMug();
+            drawCoffeeLiquid();
+
+            // Draw particles
+            scene.stream.particles.forEach(p => p.draw(ctx));
+            scene.steam.particles.forEach(p => p.draw(ctx));
+
+            drawStream();
+            drawSplash();
+
+            requestAnimationFrame(render);
+        }
+
+        // Animation control
+        function startAnimation() {
+            scene.isAnimating = true;
+            scene.startTime = Date.now();
+            scene.mug.fillLevel = 0;
+            scene.mug.targetFillLevel = 0;
+            scene.stream.isPouring = false;
+            scene.stream.particles = [];
+            scene.steam.particles = [];
+        }
+
+        // Event listeners
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            scene.autoReplay = false;
+            startAnimation();
+        });
+
+        document.getElementById('autoBtn').addEventListener('click', () => {
+            scene.autoReplay = true;
+            startAnimation();
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            scene.counterY = canvas.height * 0.65;
+            scene.mug.x = canvas.width * 0.55;
+            scene.mug.y = canvas.height * 0.52;
+            scene.pot.x = canvas.width * 0.25;
+            scene.pot.y = canvas.height * 0.35;
+        });
+
+        // Start with animation running
+        startAnimation();
+
+        // Main render loop
+        render();
+    </script>
+</body>
+</html>

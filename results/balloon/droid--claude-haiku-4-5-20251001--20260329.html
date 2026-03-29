@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Floating Hot Air Balloon</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        #scene {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(180deg, #FFB347 0%, #FF8C42 25%, #FFB6C1 50%, #87CEEB 75%, #4A90E2 100%);
+            overflow: hidden;
+        }
+
+        /* Canvas element for animations */
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        /* Mountain layers using div for parallax */
+        .mountains {
+            position: absolute;
+            bottom: 0;
+            width: 200%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .mountain-layer {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .mountain-layer.far {
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400"><defs><linearGradient id="far" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:%23B0D4E3;stop-opacity:1" /><stop offset="100%" style="stop-color:%238BC3D9;stop-opacity:1" /></linearGradient></defs><polygon points="0,300 150,100 300,250 450,80 600,200 750,120 900,260 1050,100 1200,280 1200,400 0,400" fill="url(%23far)"/></svg>') repeat-x;
+            background-size: 1200px 400px;
+            bottom: 45%;
+            opacity: 0.6;
+        }
+
+        .mountain-layer.mid {
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400"><defs><linearGradient id="mid" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:%2390B4A8;stop-opacity:1" /><stop offset="100%" style="stop-color:%236B8F84;stop-opacity:1" /></linearGradient></defs><polygon points="0,280 120,150 250,240 380,100 500,180 620,120 750,260 880,140 1000,220 1200,180 1200,400 0,400" fill="url(%23mid)"/></svg>') repeat-x;
+            background-size: 1200px 400px;
+            bottom: 25%;
+            opacity: 0.8;
+        }
+
+        .mountain-layer.near {
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400"><defs><linearGradient id="near" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:%23556B45;stop-opacity:1" /><stop offset="100%" style="stop-color:%23334422;stop-opacity:1" /></linearGradient></defs><polygon points="0,250 100,120 200,200 320,80 420,160 520,100 650,240 780,130 900,190 1000,150 1200,200 1200,400 0,400" fill="url(%23near)"/></svg>') repeat-x;
+            background-size: 1200px 400px;
+            bottom: 0;
+            opacity: 1;
+        }
+
+        .info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.5);
+            pointer-events: none;
+            font-weight: 300;
+        }
+    </style>
+</head>
+<body>
+    <div id="scene">
+        <canvas id="mainCanvas"></canvas>
+        <div class="mountains">
+            <div class="mountain-layer far"></div>
+            <div class="mountain-layer mid"></div>
+            <div class="mountain-layer near"></div>
+        </div>
+        <div class="info">Hot Air Balloon • Sunrise Valley</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('mainCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Set canvas size
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Animation state
+        let time = 0;
+        const balloonState = {
+            x: window.innerWidth / 2,
+            y: window.innerHeight * 0.25,
+            bobAmount: 0,
+            swayAmount: 0,
+            flameActive: false,
+            flameTimer: 0
+        };
+
+        // Clouds array
+        const clouds = [];
+        function initClouds() {
+            clouds.length = 0;
+            for (let i = 0; i < 8; i++) {
+                clouds.push({
+                    x: Math.random() * window.innerWidth,
+                    y: Math.random() * (window.innerHeight * 0.4) + 50,
+                    width: Math.random() * 100 + 80,
+                    height: Math.random() * 40 + 30,
+                    speed: Math.random() * 0.3 + 0.1,
+                    opacity: Math.random() * 0.4 + 0.3
+                });
+            }
+        }
+        initClouds();
+        window.addEventListener('resize', initClouds);
+
+        // Birds array
+        const birds = [];
+        function initBirds() {
+            birds.length = 0;
+            for (let i = 0; i < 5; i++) {
+                birds.push({
+                    x: Math.random() * window.innerWidth,
+                    y: Math.random() * (window.innerHeight * 0.3) + 100,
+                    vx: Math.random() * 1 + 0.5,
+                    vy: Math.sin(Math.random() * Math.PI) * 0.3,
+                    size: Math.random() * 6 + 4,
+                    wobble: Math.random() * Math.PI * 2
+                });
+            }
+        }
+        initBirds();
+
+        // Draw cloud
+        function drawCloud(x, y, width, height, opacity) {
+            ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+            
+            // Cloud puffs
+            const puffRadius = height / 2;
+            ctx.beginPath();
+            ctx.arc(x - width * 0.25, y, puffRadius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(x, y, puffRadius * 1.2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(x + width * 0.25, y, puffRadius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Draw bird (V-shape in distance)
+        function drawBird(x, y, size, wobbleOffset) {
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.lineWidth = size * 0.3;
+            ctx.lineCap = 'round';
+            
+            const wobbleY = Math.sin(wobbleOffset) * 2;
+            
+            // Left wing
+            ctx.beginPath();
+            ctx.moveTo(x - size, y + wobbleY);
+            ctx.lineTo(x - size * 0.3, y);
+            ctx.stroke();
+            
+            // Right wing
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + size, y + wobbleY);
+            ctx.stroke();
+        }
+
+        // Draw hot air balloon
+        function drawBalloon(x, y, sway, bob) {
+            // Basket
+            const basketWidth = 35;
+            const basketHeight = 25;
+            const basketY = y + 120;
+            
+            ctx.fillStyle = '#8B6914';
+            ctx.fillRect(x - basketWidth / 2, basketY, basketWidth, basketHeight);
+            
+            // Basket weave pattern
+            ctx.strokeStyle = '#654321';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 8; i++) {
+                ctx.beginPath();
+                ctx.moveTo(x - basketWidth / 2 + i * (basketWidth / 7), basketY);
+                ctx.lineTo(x - basketWidth / 2 + i * (basketWidth / 7), basketY + basketHeight);
+                ctx.stroke();
+            }
+            for (let i = 0; i < 5; i++) {
+                ctx.beginPath();
+                ctx.moveTo(x - basketWidth / 2, basketY + i * (basketHeight / 4));
+                ctx.lineTo(x + basketWidth / 2, basketY + i * (basketHeight / 4));
+                ctx.stroke();
+            }
+
+            // Ropes from balloon to basket
+            ctx.strokeStyle = 'rgba(139, 69, 19, 0.5)';
+            ctx.lineWidth = 2;
+            const corners = [
+                [x - 40, y],
+                [x + 40, y],
+                [x - 50, y + 20],
+                [x + 50, y + 20]
+            ];
+            for (let corner of corners) {
+                ctx.beginPath();
+                ctx.moveTo(corner[0], corner[1]);
+                ctx.lineTo(x - basketWidth / 2 + 10, basketY);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(corner[0], corner[1]);
+                ctx.lineTo(x + basketWidth / 2 - 10, basketY);
+                ctx.stroke();
+            }
+
+            // Balloon envelope
+            const balloonWidth = 80;
+            const balloonHeight = 120;
+            
+            // Create striped balloon with segments
+            const stripes = 12;
+            const colors = ['#FF4444', '#4444FF', '#44FF44', '#FFFF44', '#FF44FF', '#44FFFF', '#FF8844', '#FF44CC', '#44FFCC', '#FFCC44', '#CC44FF', '#44CCFF'];
+            
+            for (let i = 0; i < stripes; i++) {
+                const startAngle = (i / stripes) * Math.PI * 2;
+                const endAngle = ((i + 1) / stripes) * Math.PI * 2;
+                
+                ctx.fillStyle = colors[i % colors.length];
+                ctx.globalAlpha = 0.85;
+                
+                // Draw stripe as part of ellipse
+                ctx.beginPath();
+                ctx.ellipse(x + sway, y + bob, balloonWidth, balloonHeight, 0, startAngle, endAngle);
+                ctx.lineTo(x + sway, y + bob);
+                ctx.fill();
+                
+                ctx.globalAlpha = 1.0;
+            }
+
+            // Balloon outline
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 0.9;
+            ctx.beginPath();
+            ctx.ellipse(x + sway, y + bob, balloonWidth, balloonHeight, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.globalAlpha = 1.0;
+
+            // Flame inside balloon
+            if (balloonState.flameActive) {
+                drawFlame(x + sway, y + bob - 30);
+            }
+
+            // Shine/highlight on balloon
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+            ctx.beginPath();
+            ctx.ellipse(x + sway - 20, y + bob - 40, 20, 30, -Math.PI / 6, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Draw flame
+        function drawFlame(x, y) {
+            const flameHeight = 40;
+            const flameWidth = 25;
+            
+            // Outer flame (orange-red)
+            ctx.fillStyle = 'rgba(255, 100, 0, 0.7)';
+            ctx.beginPath();
+            ctx.ellipse(x, y, flameWidth * 0.7, flameHeight, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Inner flame (yellow-white)
+            ctx.fillStyle = 'rgba(255, 200, 0, 0.8)';
+            ctx.beginPath();
+            ctx.ellipse(x, y + 5, flameWidth * 0.4, flameHeight * 0.6, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Flame flickers (add randomness)
+            ctx.fillStyle = 'rgba(255, 255, 100, 0.6)';
+            ctx.beginPath();
+            ctx.ellipse(x - 5, y - 10, flameWidth * 0.2, flameHeight * 0.3, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.ellipse(x + 5, y - 5, flameWidth * 0.25, flameHeight * 0.35, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Animation loop
+        function animate() {
+            time += 1;
+
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Update balloon position - gentle horizontal drift
+            const driftSpeed = 0.15;
+            balloonState.x += driftSpeed;
+            
+            // Wrap around screen
+            if (balloonState.x > canvas.width + 100) {
+                balloonState.x = -100;
+            }
+
+            // Bob motion (vertical)
+            balloonState.bobAmount = Math.sin(time * 0.01) * 20;
+
+            // Sway motion (horizontal slight wobble)
+            balloonState.swayAmount = Math.cos(time * 0.008) * 15;
+
+            // Flame bursting logic
+            balloonState.flameTimer++;
+            if (balloonState.flameTimer < 30) {
+                balloonState.flameActive = true;
+            } else if (balloonState.flameTimer < 180) {
+                balloonState.flameActive = false;
+            } else {
+                balloonState.flameTimer = 0;
+            }
+
+            // Update and draw clouds
+            for (let cloud of clouds) {
+                cloud.x += cloud.speed;
+                if (cloud.x > canvas.width + cloud.width) {
+                    cloud.x = -cloud.width;
+                }
+                drawCloud(cloud.x, cloud.y, cloud.width, cloud.height, cloud.opacity);
+            }
+
+            // Update and draw birds
+            for (let bird of birds) {
+                bird.x += bird.vx;
+                bird.y += bird.vy * Math.sin(bird.wobble);
+                bird.wobble += 0.05;
+
+                // Wrap around
+                if (bird.x > canvas.width + 50) {
+                    bird.x = -50;
+                    bird.y = Math.random() * (canvas.height * 0.3) + 100;
+                }
+
+                drawBird(bird.x, bird.y, bird.size, bird.wobble);
+            }
+
+            // Draw balloon
+            drawBalloon(
+                balloonState.x,
+                balloonState.y + balloonState.bobAmount,
+                balloonState.swayAmount,
+                0
+            );
+
+            requestAnimationFrame(animate);
+        }
+
+        // Start animation
+        animate();
+    </script>
+</body>
+</html>
