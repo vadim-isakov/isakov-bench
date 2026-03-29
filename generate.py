@@ -99,6 +99,7 @@ def generate_html(data, prompts_map):
   "applicationCategory": "DeveloperApplication"
 }}
 </script>
+<script defer src="https://cloud.umami.is/script.js" data-website-id="407fcfec-9cc4-4676-a5c5-4aeba53a4e2b"></script>
 <style>
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
   body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #e0e0e0; }}
