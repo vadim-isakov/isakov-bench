@@ -20,3 +20,4 @@
 
 - `index.html` is a **generated file** — never edit it directly.
   All changes go in `generate.py`, then regenerate with `./build.sh`.
+- When adding a new model, update `MODEL_RANK` in `generate.py` to set its column order.
