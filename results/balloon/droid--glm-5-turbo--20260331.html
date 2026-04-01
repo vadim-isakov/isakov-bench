@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hot Air Balloon — Mountain Landscape</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #1a0a2e; }
+canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<script>
+const canvas = document.getElementById('scene');
+const ctx = canvas.getContext('2d');
+let W, H, time = 0;
+
+function resize() {
+  W = canvas.width = window.innerWidth * devicePixelRatio;
+  H = canvas.height = window.innerHeight * devicePixelRatio;
+  ctx.scale(1, 1);
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ─── Sky gradient ─── */
+function drawSky() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1a0a2e');
+  g.addColorStop(0.15, '#2d1b69');
+  g.addColorStop(0.3, '#6b2fa0');
+  g.addColorStop(0.45, '#c94b4b');
+  g.addColorStop(0.58, '#f09819');
+  g.addColorStop(0.7, '#f7c948');
+  g.addColorStop(0.85, '#ffeaa7');
+  g.addColorStop(1, '#fff5d6');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ─── Sun ─── */
+function drawSun() {
+  const sx = W * 0.5 + Math.sin(time * 0.05) * W * 0.02;
+  const sy = H * 0.52;
+  const r = Math.min(W, H) * 0.07;
+
+  // glow layers
+  for (let i = 5; i >= 0; i--) {
+    const gr = r * (1 + i * 0.8);
+    const alpha = 0.04 + (5 - i) * 0.02;
+    const glow = ctx.createRadialGradient(sx, sy, r * 0.2, sx, sy, gr);
+    glow.addColorStop(0, `rgba(255, 230, 120, ${alpha})`);
+    glow.addColorStop(1, 'rgba(255, 200, 80, 0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(sx, sy, gr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // sun body
+  const sg = ctx.createRadialGradient(sx - r * 0.2, sy - r * 0.2, r * 0.1, sx, sy, r);
+  sg.addColorStop(0, '#fffbe8');
+  sg.addColorStop(0.5, '#ffd700');
+  sg.addColorStop(1, '#ff8c00');
+  ctx.fillStyle = sg;
+  ctx.beginPath();
+  ctx.arc(sx, sy, r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/* ─── Stars (fading in upper sky) ─── */
+const stars = Array.from({ length: 80 }, () => ({
+  x: Math.random(),
+  y: Math.random() * 0.4,
+  r: Math.random() * 1.5 + 0.5,
+  twinkle: Math.random() * Math.PI * 2
+}));
+
+function drawStars() {
+  stars.forEach(s => {
+    const alpha = 0.3 + 0.3 * Math.sin(time * 0.02 + s.twinkle);
+    const fade = 1 - s.y / 0.4;
+    ctx.fillStyle = `rgba(255, 255, 240, ${alpha * fade * 0.5})`;
+    ctx.beginPath();
+    ctx.arc(s.x * W, s.y * H, s.r * devicePixelRatio * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+/* ─── Clouds ─── */
+const clouds = Array.from({ length: 8 }, (_, i) => ({
+  x: Math.random() * 1.4 - 0.2,
+  y: 0.15 + Math.random() * 0.35,
+  w: 0.08 + Math.random() * 0.12,
+  h: 0.015 + Math.random() * 0.02,
+  speed: 0.00002 + Math.random() * 0.00004,
+  opacity: 0.15 + Math.random() * 0.25,
+  puffs: Array.from({ length: 4 + Math.floor(Math.random() * 4) }, () => ({
+    ox: (Math.random() - 0.5) * 0.8,
+    oy: (Math.random() - 0.5) * 0.6,
+    r: 0.4 + Math.random() * 0.6
+  }))
+}));
+
+function drawCloud(c) {
+  const cx = c.x * W, cy = c.y * H;
+  const cw = c.w * W, ch = c.h * H;
+  c.puffs.forEach(p => {
+    const px = cx + p.ox * cw;
+    const py = cy + p.oy * ch;
+    const pr = p.r * ch * 1.5;
+    const g = ctx.createRadialGradient(px, py, pr * 0.1, px, py, pr);
+    g.addColorStop(0, `rgba(255, 250, 240, ${c.opacity})`);
+    g.addColorStop(0.6, `rgba(255, 240, 220, ${c.opacity * 0.5})`);
+    g.addColorStop(1, `rgba(255, 230, 200, 0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(px, py, pr, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+function updateClouds() {
+  clouds.forEach(c => {
+    c.x += c.speed;
+    if (c.x > 1.3) c.x = -0.3;
+    drawCloud(c);
+  });
+}
+
+/* ─── Mountains ─── */
+function mountainY(x, peaks, baseY, amplitude) {
+  let y = baseY;
+  peaks.forEach(p => {
+    const dx = x - p.x;
+    const influence = Math.exp(-dx * dx / (2 * p.w * p.w));
+    y -= p.h * influence;
+  });
+  // add noise-like bumps
+  y += Math.sin(x * 0.003) * amplitude * 0.08;
+  y += Math.sin(x * 0.007 + 1) * amplitude * 0.05;
+  y += Math.sin(x * 0.015 + 3) * amplitude * 0.03;
+  return y;
+}
+
+function drawMountainLayer(peaks, baseY, color, shadowColor, amplitude) {
+  // fill
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  for (let x = 0; x <= W; x += 2) {
+    ctx.lineTo(x, mountainY(x, peaks, baseY, amplitude));
+  }
+  ctx.lineTo(W, H);
+  ctx.closePath();
+
+  const g = ctx.createLinearGradient(0, baseY - amplitude, 0, H);
+  g.addColorStop(0, color);
+  g.addColorStop(1, shadowColor);
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // snow caps
+  ctx.save();
+  ctx.globalAlpha = 0.3;
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  for (let x = 0; x <= W; x += 2) {
+    const my = mountainY(x, peaks, baseY, amplitude);
+    ctx.lineTo(x, my + (my - baseY + amplitude) * 0.15);
+  }
+  ctx.lineTo(W, H);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.fill();
+  ctx.restore();
+}
+
+const mountainLayers = [
+  { // far background
+    peaks: [
+      { x: W * 0.15, h: H * 0.18, w: W * 0.18 },
+      { x: W * 0.35, h: H * 0.22, w: W * 0.22 },
+      { x: W * 0.55, h: H * 0.2, w: W * 0.2 },
+      { x: W * 0.78, h: H * 0.25, w: W * 0.25 },
+      { x: W * 0.95, h: H * 0.17, w: W * 0.15 },
+    ],
+    baseY: H * 0.68,
+    color: '#8e6bbf',
+    shadowColor: '#6b4fa0',
+    amplitude: H * 0.22,
+    parallax: 0.002
+  },
+  { // mid
+    peaks: [
+      { x: W * 0.1, h: H * 0.15, w: W * 0.2 },
+      { x: W * 0.3, h: H * 0.2, w: W * 0.18 },
+      { x: W * 0.5, h: H * 0.18, w: W * 0.22 },
+      { x: W * 0.72, h: H * 0.22, w: W * 0.2 },
+      { x: W * 0.9, h: H * 0.16, w: W * 0.16 },
+    ],
+    baseY: H * 0.74,
+    color: '#5c3d8f',
+    shadowColor: '#3d2565',
+    amplitude: H * 0.2,
+    parallax: 0.005
+  },
+  { // near foreground
+    peaks: [
+      { x: W * 0.05, h: H * 0.12, w: W * 0.22 },
+      { x: W * 0.25, h: H * 0.16, w: W * 0.2 },
+      { x: W * 0.48, h: H * 0.14, w: W * 0.25 },
+      { x: W * 0.7, h: H * 0.18, w: W * 0.18 },
+      { x: W * 0.88, h: H * 0.13, w: W * 0.2 },
+    ],
+    baseY: H * 0.82,
+    color: '#2d1854',
+    shadowColor: '#1a0a2e',
+    amplitude: H * 0.16,
+    parallax: 0.01
+  },
+  { // closest
+    peaks: [
+      { x: W * 0.0, h: H * 0.08, w: W * 0.25 },
+      { x: W * 0.2, h: H * 0.1, w: W * 0.2 },
+      { x: W * 0.42, h: H * 0.09, w: W * 0.22 },
+      { x: W * 0.65, h: H * 0.11, w: W * 0.2 },
+      { x: W * 0.85, h: H * 0.08, w: W * 0.25 },
+    ],
+    baseY: H * 0.92,
+    color: '#150a28',
+    shadowColor: '#0a0516',
+    amplitude: H * 0.1,
+    parallax: 0.015
+  }
+];
+
+function drawMountains() {
+  mountainLayers.forEach(layer => {
+    const offsetX = Math.sin(time * 0.008) * layer.parallax * W;
+    const shiftedPeaks = layer.peaks.map(p => ({ ...p, x: p.x + offsetX }));
+    drawMountainLayer(shiftedPeaks, layer.baseY, layer.color, layer.shadowColor, layer.amplitude);
+  });
+}
+
+/* ─── Birds ─── */
+const birds = Array.from({ length: 6 }, () => ({
+  x: Math.random() * 1.5 - 0.25,
+  y: 0.12 + Math.random() * 0.3,
+  speed: 0.0001 + Math.random() * 0.0002,
+  wingPhase: Math.random() * Math.PI * 2,
+  wingSpeed: 0.06 + Math.random() * 0.04,
+  size: 0.003 + Math.random() * 0.004,
+  opacity: 0.3 + Math.random() * 0.4
+}));
+
+function drawBirds() {
+  birds.forEach(b => {
+    b.x += b.speed;
+    if (b.x > 1.3) b.x = -0.2;
+    const bx = b.x * W;
+    const by = b.y * H + Math.sin(time * 0.015 + b.wingPhase) * H * 0.005;
+    const wingAngle = Math.sin(time * b.wingSpeed + b.wingPhase) * 0.5;
+    const s = b.size * W;
+
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.strokeStyle = `rgba(40, 20, 60, ${b.opacity})`;
+    ctx.lineWidth = Math.max(1, s * 0.15);
+    ctx.lineCap = 'round';
+
+    // left wing
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(-s * 0.5, -s * wingAngle * 1.5, -s, -s * wingAngle);
+    ctx.stroke();
+
+    // right wing
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(s * 0.5, -s * wingAngle * 1.5, s, -s * wingAngle);
+    ctx.stroke();
+
+    ctx.restore();
+  });
+}
+
+/* ─── Hot Air Balloon ─── */
+const balloon = {
+  baseX: 0.5,
+  baseY: 0.38,
+  driftSpeed: 0.00015,
+  bobSpeed: 0.012,
+  swaySpeed: 0.008,
+  bobAmp: 0.012,
+  swayAmp: 0.02,
+  scale: 1
+};
+
+function drawBalloon() {
+  const bx = (balloon.baseX + Math.sin(time * balloon.swaySpeed) * balloon.swayAmp +
+              time * balloon.driftSpeed) % 1.4 - 0.2;
+  const by = balloon.baseY + Math.sin(time * balloon.bobSpeed) * balloon.bobAmp;
+  const tilt = Math.sin(time * balloon.swaySpeed * 1.3) * 0.03;
+
+  const cx = bx * W;
+  const cy = by * H;
+  const s = Math.min(W, H) * balloon.scale;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(tilt);
+
+  const envW = s * 0.38;
+  const envH = s * 0.52;
+
+  // ── Envelope (balloon body) ──
+  const envTop = -envH;
+  const envBot = 0;
+
+  // draw stripes
+  const stripeColors = [
+    '#e74c3c', '#f39c12', '#f1c40f', '#2ecc71', '#3498db',
+    '#9b59b6', '#e74c3c', '#f39c12', '#f1c40f', '#2ecc71',
+    '#3498db', '#9b59b6'
+  ];
+  const numStripes = stripeColors.length;
+  const stripeAngle = (Math.PI * 2) / numStripes;
+
+  // Draw the balloon shape with stripes using clipping
+  ctx.save();
+
+  // Create balloon envelope path
+  ctx.beginPath();
+  // top (slightly pointed)
+  ctx.moveTo(0, envTop);
+  // right side - bezier curve to create nice balloon shape
+  ctx.bezierCurveTo(
+    envW * 0.3, envTop,
+    envW * 1.05, envTop + envH * 0.3,
+    envW * 0.85, envBot
+  );
+  // bottom opening
+  ctx.lineTo(-envW * 0.85, envBot);
+  // left side
+  ctx.bezierCurveTo(
+    -envW * 1.05, envTop + envH * 0.3,
+    -envW * 0.3, envTop,
+    0, envTop
+  );
+  ctx.closePath();
+  ctx.clip();
+
+  // Fill stripes as vertical bands with perspective
+  for (let i = 0; i < numStripes; i++) {
+    const t1 = i / numStripes;
+    const t2 = (i + 1) / numStripes;
+    const x1 = -envW + t1 * envW * 2;
+    const x2 = -envW + t2 * envW * 2;
+
+    // Simulate curvature by adjusting x based on y position
+    ctx.beginPath();
+    const steps = 20;
+    for (let j = 0; j <= steps; j++) {
+      const yt = j / steps;
+      const yPos = envTop + yt * envH;
+      const widthFactor = Math.sin(yt * Math.PI) * 0.9 + 0.1;
+      const cx1 = x1 * widthFactor;
+      if (j === 0) ctx.moveTo(cx1, yPos);
+      else ctx.lineTo(cx1, yPos);
+    }
+    for (let j = steps; j >= 0; j--) {
+      const yt = j / steps;
+      const yPos = envTop + yt * envH;
+      const widthFactor = Math.sin(yt * Math.PI) * 0.9 + 0.1;
+      const cx2 = x2 * widthFactor;
+      ctx.lineTo(cx2, yPos);
+    }
+    ctx.closePath();
+    ctx.fillStyle = stripeColors[i];
+    ctx.fill();
+  }
+
+  // Highlight/sheen
+  const sheen = ctx.createLinearGradient(-envW * 0.5, envTop, envW * 0.5, envTop);
+  sheen.addColorStop(0, 'rgba(255,255,255,0.15)');
+  sheen.addColorStop(0.3, 'rgba(255,255,255,0.25)');
+  sheen.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+  sheen.addColorStop(1, 'rgba(0,0,0,0.1)');
+  ctx.fillStyle = sheen;
+  ctx.fillRect(-envW, envTop, envW * 2, envH);
+
+  ctx.restore();
+
+  // Envelope outline
+  ctx.beginPath();
+  ctx.moveTo(0, envTop);
+  ctx.bezierCurveTo(
+    envW * 0.3, envTop,
+    envW * 1.05, envTop + envH * 0.3,
+    envW * 0.85, envBot
+  );
+  ctx.lineTo(-envW * 0.85, envBot);
+  ctx.bezierCurveTo(
+    -envW * 1.05, envTop + envH * 0.3,
+    -envW * 0.3, envTop,
+    0, envTop
+  );
+  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // ── Ropes ──
+  const ropeTop = envBot;
+  const basketW = s * 0.12;
+  const basketH = s * 0.06;
+  const basketTop = ropeTop + s * 0.1;
+  const basketBot = basketTop + basketH;
+
+  ctx.strokeStyle = 'rgba(80, 60, 40, 0.6)';
+  ctx.lineWidth = 1.2;
+  // left ropes
+  ctx.beginPath();
+  ctx.moveTo(-envW * 0.7, ropeTop);
+  ctx.lineTo(-basketW * 0.8, basketTop);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-envW * 0.3, ropeTop);
+  ctx.lineTo(-basketW * 0.4, basketTop);
+  ctx.stroke();
+  // right ropes
+  ctx.beginPath();
+  ctx.moveTo(envW * 0.7, ropeTop);
+  ctx.lineTo(basketW * 0.8, basketTop);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(envW * 0.3, ropeTop);
+  ctx.lineTo(basketW * 0.4, basketTop);
+  ctx.stroke();
+
+  // ── Basket ──
+  ctx.fillStyle = '#8B5E3C';
+  ctx.strokeStyle = '#6B4226';
+  ctx.lineWidth = 1.5;
+
+  // basket body
+  const bw = basketW;
+  const bt = basketTop;
+  const bb = basketBot;
+  ctx.beginPath();
+  ctx.moveTo(-bw, bt);
+  ctx.lineTo(-bw * 0.85, bb);
+  ctx.lineTo(bw * 0.85, bb);
+  ctx.lineTo(bw, bt);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // basket rim
+  ctx.fillStyle = '#A0724E';
+  ctx.fillRect(-bw * 1.05, bt - basketH * 0.25, bw * 2.1, basketH * 0.3);
+  ctx.strokeRect(-bw * 1.05, bt - basketH * 0.25, bw * 2.1, basketH * 0.3);
+
+  // weave lines
+  ctx.strokeStyle = 'rgba(107, 66, 38, 0.5)';
+  ctx.lineWidth = 0.8;
+  for (let i = 1; i < 4; i++) {
+    const ly = bt + (bb - bt) * (i / 4);
+    ctx.beginPath();
+    ctx.moveTo(-bw + (bb - ly) * 0.05, ly);
+    ctx.lineTo(bw - (bb - ly) * 0.05, ly);
+    ctx.stroke();
+  }
+
+  // ── Flame ──
+  const flameCycle = (time * 0.04) % (Math.PI * 2);
+  const flameIntensity = Math.max(0, Math.sin(flameCycle)) * (0.7 + 0.3 * Math.sin(flameCycle * 3.7));
+  const flameHeight = s * 0.06 * flameIntensity;
+  const flameW = s * 0.025;
+
+  if (flameIntensity > 0.05) {
+    // Outer flame
+    const fg = ctx.createLinearGradient(0, ropeTop, 0, ropeTop - flameHeight);
+    fg.addColorStop(0, `rgba(255, 100, 0, ${flameIntensity * 0.8})`);
+    fg.addColorStop(0.4, `rgba(255, 180, 0, ${flameIntensity * 0.6})`);
+    fg.addColorStop(0.7, `rgba(255, 230, 50, ${flameIntensity * 0.4})`);
+    fg.addColorStop(1, `rgba(255, 255, 150, 0)`);
+
+    ctx.fillStyle = fg;
+    ctx.beginPath();
+    const fh = flameHeight;
+    const fw = flameW * (0.8 + Math.sin(time * 0.1) * 0.2);
+    ctx.moveTo(-fw, ropeTop);
+    ctx.quadraticCurveTo(-fw * 0.3, ropeTop - fh * 0.6, 0, ropeTop - fh);
+    ctx.quadraticCurveTo(fw * 0.3, ropeTop - fh * 0.6, fw, ropeTop);
+    ctx.closePath();
+    ctx.fill();
+
+    // Inner flame
+    const ifh = fh * 0.6;
+    const ifw = fw * 0.5;
+    const ifg = ctx.createLinearGradient(0, ropeTop, 0, ropeTop - ifh);
+    ifg.addColorStop(0, `rgba(255, 255, 200, ${flameIntensity * 0.9})`);
+    ifg.addColorStop(0.5, `rgba(255, 255, 100, ${flameIntensity * 0.5})`);
+    ifg.addColorStop(1, `rgba(255, 200, 50, 0)`);
+
+    ctx.fillStyle = ifg;
+    ctx.beginPath();
+    ctx.moveTo(-ifw, ropeTop);
+    ctx.quadraticCurveTo(-ifw * 0.2, ropeTop - ifh * 0.5, 0, ropeTop - ifh);
+    ctx.quadraticCurveTo(ifw * 0.2, ropeTop - ifh * 0.5, ifw, ropeTop);
+    ctx.closePath();
+    ctx.fill();
+
+    // Flame glow on balloon
+    const glowR = s * 0.15 * flameIntensity;
+    const glow = ctx.createRadialGradient(0, ropeTop, 0, 0, ropeTop, glowR);
+    glow.addColorStop(0, `rgba(255, 180, 50, ${flameIntensity * 0.15})`);
+    glow.addColorStop(1, 'rgba(255, 150, 30, 0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(0, ropeTop, glowR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+/* ─── Mist / fog at mountain base ─── */
+function drawMist() {
+  const mistY = H * 0.78;
+  for (let i = 0; i < 5; i++) {
+    const my = mistY + i * H * 0.04;
+    const alpha = 0.03 + i * 0.01;
+    const offset = Math.sin(time * 0.005 + i) * W * 0.02;
+    const g = ctx.createLinearGradient(0, my - H * 0.03, 0, my + H * 0.03);
+    g.addColorStop(0, 'rgba(200, 180, 220, 0)');
+    g.addColorStop(0.5, `rgba(200, 180, 220, ${alpha})`);
+    g.addColorStop(1, 'rgba(200, 180, 220, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(-W * 0.1 + offset, my - H * 0.03, W * 1.2, H * 0.06);
+  }
+}
+
+/* ─── Ambient particles (dust/pollen in light) ─── */
+const particles = Array.from({ length: 30 }, () => ({
+  x: Math.random(),
+  y: 0.3 + Math.random() * 0.5,
+  r: 0.5 + Math.random() * 1.5,
+  speedX: (Math.random() - 0.5) * 0.00003,
+  speedY: -0.00001 - Math.random() * 0.00002,
+  phase: Math.random() * Math.PI * 2
+}));
+
+function drawParticles() {
+  particles.forEach(p => {
+    p.x += p.speedX + Math.sin(time * 0.01 + p.phase) * 0.00002;
+    p.y += p.speedY;
+    if (p.y < 0.2) { p.y = 0.8; p.x = Math.random(); }
+    if (p.x < -0.05) p.x = 1.05;
+    if (p.x > 1.05) p.x = -0.05;
+
+    const px = p.x * W;
+    const py = p.y * H;
+    const alpha = 0.15 + 0.1 * Math.sin(time * 0.02 + p.phase);
+    const g = ctx.createRadialGradient(px, py, 0, px, py, p.r * devicePixelRatio * 2);
+    g.addColorStop(0, `rgba(255, 240, 180, ${alpha})`);
+    g.addColorStop(1, 'rgba(255, 220, 150, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(px, py, p.r * devicePixelRatio * 2, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+/* ─── Foreground silhouette ─── */
+function drawForeground() {
+  const treeY = H * 0.93;
+  ctx.fillStyle = '#0d0520';
+  // ground
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  for (let x = 0; x <= W; x += 3) {
+    const y = treeY + Math.sin(x * 0.005) * H * 0.015 + Math.sin(x * 0.012 + 2) * H * 0.008;
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(W, H);
+  ctx.closePath();
+  ctx.fill();
+
+  // simple tree silhouettes
+  const trees = [
+    { x: 0.02, h: 0.04 }, { x: 0.06, h: 0.06 }, { x: 0.1, h: 0.05 },
+    { x: 0.18, h: 0.07 }, { x: 0.82, h: 0.06 }, { x: 0.88, h: 0.08 },
+    { x: 0.93, h: 0.05 }, { x: 0.97, h: 0.06 }
+  ];
+  trees.forEach(t => {
+    const tx = t.x * W;
+    const th = t.h * H;
+    const tw = th * 0.35;
+    const ty = treeY + Math.sin(tx * 0.005) * H * 0.015 + Math.sin(tx * 0.012 + 2) * H * 0.008;
+    // trunk
+    ctx.fillRect(tx - th * 0.03, ty - th * 0.3, th * 0.06, th * 0.35);
+    // canopy (triangle)
+    ctx.beginPath();
+    ctx.moveTo(tx, ty - th);
+    ctx.lineTo(tx - tw, ty - th * 0.2);
+    ctx.lineTo(tx + tw, ty - th * 0.2);
+    ctx.closePath();
+    ctx.fill();
+    // second layer
+    ctx.beginPath();
+    ctx.moveTo(tx, ty - th * 0.85);
+    ctx.lineTo(tx - tw * 1.1, ty - th * 0.05);
+    ctx.lineTo(tx + tw * 1.1, ty - th * 0.05);
+    ctx.closePath();
+    ctx.fill();
+  });
+}
+
+/* ─── Light rays from sun ─── */
+function drawLightRays() {
+  const sx = W * 0.5 + Math.sin(time * 0.05) * W * 0.02;
+  const sy = H * 0.52;
+  const numRays = 8;
+
+  ctx.save();
+  ctx.globalAlpha = 0.04 + 0.02 * Math.sin(time * 0.015);
+  for (let i = 0; i < numRays; i++) {
+    const angle = (i / numRays) * Math.PI * 0.6 + Math.PI * 0.7 + Math.sin(time * 0.003 + i) * 0.05;
+    const rayLen = H * 0.6;
+    const rayW = W * 0.02 + Math.sin(time * 0.01 + i * 2) * W * 0.005;
+
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(
+      sx + Math.cos(angle - 0.02) * rayLen,
+      sy + Math.sin(angle - 0.02) * rayLen
+    );
+    ctx.lineTo(
+      sx + Math.cos(angle + 0.02) * rayLen,
+      sy + Math.sin(angle + 0.02) * rayLen
+    );
+    ctx.closePath();
+
+    const rg = ctx.createLinearGradient(sx, sy, sx + Math.cos(angle) * rayLen, sy + Math.sin(angle) * rayLen);
+    rg.addColorStop(0, 'rgba(255, 220, 130, 0.3)');
+    rg.addColorStop(1, 'rgba(255, 200, 100, 0)');
+    ctx.fillStyle = rg;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ─── Animation loop ─── */
+function render() {
+  time++;
+  ctx.clearRect(0, 0, W, H);
+
+  drawSky();
+  drawStars();
+  drawSun();
+  drawLightRays();
+  updateClouds();
+  drawBirds();
+  drawMountains();
+  drawMist();
+  drawParticles();
+  drawBalloon();
+  drawForeground();
+
+  requestAnimationFrame(render);
+}
+
+render();
+</script>
+</body>
+</html>

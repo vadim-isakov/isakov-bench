@@ -16,5 +16,14 @@
   },
   "results/fish/droid--haiku-4.5--20260329.html": {
     "durationMs": 44690
+  },
+  "results/fish/droid--glm-5-turbo--20260331.html": {
+    "durationMs": 104282
+  },
+  "results/balloon/droid--glm-5-turbo--20260331.html": {
+    "durationMs": 142226
+  },
+  "results/pour/droid--glm-5-turbo--20260331.html": {
+    "durationMs": 203887
   }
 }

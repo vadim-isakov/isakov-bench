@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tropical Fish Tank</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;width:100%;height:100%}
+</style>
+</head>
+<body>
+<canvas id="tank"></canvas>
+<script>
+const canvas=document.getElementById('tank'),ctx=canvas.getContext('2d');
+let W,H,time=0,bubbles=[],pebbles=[],plants=[],caustics=[];
+
+function resize(){
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth;H=window.innerHeight;
+  canvas.width=W*dpr;canvas.height=H*dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize',resize);
+resize();
+
+// --- Utility ---
+function rand(a,b){return a+Math.random()*(b-a)}
+function randInt(a,b){return Math.floor(rand(a,b+1))}
+function lerp(a,b,t){return a+(b-a)*t}
+function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v))}
+
+// --- Pebbles ---
+function initPebbles(){
+  pebbles=[];
+  const count=Math.floor(W/12);
+  for(let i=0;i<count;i++){
+    pebbles.push({
+      x:rand(0,W),y:H-rand(5,50),
+      rx:rand(4,14),ry:rand(3,8),
+      rot:rand(0,Math.PI),
+      color:`hsl(${randInt(20,50)},${randInt(10,30)}%,${randInt(25,50)}%)`
+    });
+  }
+}
+
+// --- Plants ---
+function initPlants(){
+  plants=[];
+  const count=Math.max(6,Math.floor(W/100));
+  for(let i=0;i<count;i++){
+    const x=rand(20,W-20);
+    const segments=randInt(6,14);
+    const segLen=rand(18,35);
+    const hue=randInt(90,160);
+    const sat=randInt(40,80);
+    const light=randInt(20,40);
+    plants.push({x,segments,segLen,hue,sat,light,phase:rand(0,Math.PI*2),width:rand(4,9)});
+  }
+}
+
+// --- Bubbles ---
+function spawnBubble(){
+  bubbles.push({
+    x:rand(W*0.3,W*0.7),y:H-rand(20,60),
+    r:rand(1.5,5),speed:rand(0.4,1.2),wobble:rand(0,Math.PI*2),wobbleAmp:rand(0.3,1.5),alpha:rand(0.3,0.7)
+  });
+}
+
+// --- Caustics ---
+function initCaustics(){
+  caustics=[];
+  for(let i=0;i<18;i++){
+    caustics.push({
+      x:rand(0,W),y:rand(0,H*0.7),
+      rx:rand(30,90),ry:rand(15,50),
+      phase:rand(0,Math.PI*2),speed:rand(0.2,0.6),alpha:rand(0.02,0.06)
+    });
+  }
+}
+
+// --- Fish Species ---
+const SPECIES=[
+  {name:'clownfish',bodyColor:'#FF6B35',stripeColor:'#FFFFFF',tailColor:'#FF4500',size:0.8,finColor:'#FF8C00',stripes:true},
+  {name:'angelfish',bodyColor:'#FFD700',stripeColor:'#222',tailColor:'#FFA500',size:1.1,finColor:'#FFD700',stripes:true,tall:true},
+  {name:'neon_tetra',bodyColor:'#00BFFF',stripeColor:'#FF1744',tailColor:'#00BFFF',size:0.5,finColor:'#00E5FF',stripes:false,glow:true},
+  {name:'guppy',bodyColor:'#9C27B0',stripeColor:'#E040FB',tailColor:'#7B1FA2',size:0.45,finColor:'#CE93D8',stripes:false,fancyTail:true},
+  {name:'betta',bodyColor:'#D50000',stripeColor:'#FF6F00',tailColor:'#B71C1C',size:0.9,finColor:'#FF1744',stripped:false,flowingFins:true},
+  {name:'blue_tang',bodyColor:'#1565C0',stripeColor:'#FFD600',tailColor:'#0D47A1',size:0.85,finColor:'#1976D2',stripes:false,mark:true},
+  {name:'goldfish',bodyColor:'#FF8F00',stripeColor:'#FFB300',tailColor:'#E65100',size:0.7,finColor:'#FFC107',stripes:false},
+  {name:'discus',bodyColor:'#E91E63',stripeColor:'#F48FB1',tailColor:'#AD1457',size:1.0,finColor:'#EC407A',stripes:false,round:true}
+];
+
+// --- Fish ---
+let fishes=[];
+function initFish(){
+  fishes=[];
+  const count=randInt(5,8);
+  const shuffled=[...SPECIES].sort(()=>Math.random()-0.5);
+  for(let i=0;i<count;i++){
+    const sp=shuffled[i%shuffled.length];
+    const dir=Math.random()>0.5?1:-1;
+    fishes.push({
+      species:sp,
+      x:rand(100,W-100),
+      y:rand(80,H-120),
+      vx:dir*rand(0.4,1.2)*(sp.size*0.7+0.5),
+      vy:0,
+      targetVx:dir*rand(0.4,1.2)*(sp.size*0.7+0.5),
+      dir,
+      baseY:rand(80,H-120),
+      wanderTimer:rand(0,200),
+      wanderPhase:rand(0,Math.PI*2),
+      size:sp.size*rand(22,32),
+      tailPhase:rand(0,Math.PI*2),
+      finPhase:rand(0,Math.PI*2)
+    });
+  }
+}
+
+function updateFish(f,dt){
+  f.wanderTimer-=dt;
+  if(f.wanderTimer<=0){
+    f.wanderTimer=rand(100,400);
+    f.targetVx=(Math.random()>0.5?1:-1)*rand(0.3,1.5)*(f.species.size*0.7+0.5);
+    // Occasionally change depth target
+    if(Math.random()>0.5) f.baseY=clamp(f.baseY+rand(-80,80),60,H-130);
+  }
+
+  // Smooth acceleration
+  f.vx=lerp(f.vx,f.targetVx,0.01);
+  // Gentle vertical sine wave
+  f.vy=Math.sin(time*0.008+f.wanderPhase)*0.3;
+  // Attract to base depth
+  f.vy+=(f.baseY-f.y)*0.002;
+
+  f.x+=f.vx*dt*0.06;
+  f.y+=f.vy*dt*0.06;
+
+  // Wrap around
+  if(f.vx>0&&f.x>W+60) f.x=-60;
+  if(f.vx<0&&f.x<-60) f.x=W+60;
+  f.y=clamp(f.y,40,H-100);
+
+  f.dir=f.vx>=0?1:-1;
+  f.tailPhase+=Math.abs(f.vx)*0.12*dt*0.06;
+  f.finPhase+=0.04*dt*0.06;
+}
+
+function drawFish(f){
+  ctx.save();
+  ctx.translate(f.x,f.y);
+  ctx.scale(f.dir,1);
+
+  const s=f.size;
+  const tailSwing=Math.sin(f.tailPhase)*0.3;
+  const finWave=Math.sin(f.finPhase)*0.2;
+
+  // Glow effect for neon tetra
+  if(f.species.glow){
+    ctx.shadowColor=f.species.bodyColor;
+    ctx.shadowBlur=15;
+  }
+
+  // Tail
+  ctx.save();
+  ctx.translate(-s*0.8,0);
+  ctx.rotate(tailSwing);
+  ctx.beginPath();
+  if(f.species.fancyTail){
+    // Fancy guppy tail
+    ctx.moveTo(0,0);
+    ctx.bezierCurveTo(-s*0.3,-s*0.5,-s*0.7,-s*0.6,-s*0.6,-s*0.1);
+    ctx.bezierCurveTo(-s*0.7,0,-s*0.7,0,-s*0.6,s*0.1);
+    ctx.bezierCurveTo(-s*0.7,s*0.6,-s*0.3,s*0.5,0,0);
+  } else if(f.species.flowingFins){
+    // Betta flowing tail
+    ctx.moveTo(0,0);
+    ctx.bezierCurveTo(-s*0.2,-s*0.3,-s*0.8,-s*0.5,-s*0.7,0);
+    ctx.bezierCurveTo(-s*0.8,s*0.5,-s*0.2,s*0.3,0,0);
+  } else {
+    ctx.moveTo(0,0);
+    ctx.lineTo(-s*0.5,-s*0.25);
+    ctx.lineTo(-s*0.4,0);
+    ctx.lineTo(-s*0.5,s*0.25);
+    ctx.closePath();
+  }
+  ctx.fillStyle=f.species.tailColor;
+  ctx.fill();
+  ctx.restore();
+
+  // Body
+  ctx.beginPath();
+  if(f.species.round){
+    // Discus - round body
+    ctx.ellipse(0,0,s*0.6,s*0.55,0,0,Math.PI*2);
+  } else if(f.species.tall){
+    // Angelfish - tall body
+    ctx.ellipse(0,0,s*0.4,s*0.65,0,0,Math.PI*2);
+  } else {
+    // Standard fish body
+    ctx.ellipse(0,0,s*0.7,s*0.3,0,0,Math.PI*2);
+  }
+  ctx.fillStyle=f.species.bodyColor;
+  ctx.fill();
+
+  // Stripes
+  if(f.species.stripes){
+    ctx.save();
+    ctx.clip();
+    ctx.fillStyle=f.species.stripeColor;
+    if(f.species.tall){
+      // Angelfish stripes
+      for(let i=-2;i<=2;i++){
+        ctx.fillRect(i*s*0.15-s*0.02,-s*0.7,s*0.04,s*1.4);
+      }
+    } else {
+      // Clownfish stripes
+      for(let sx of[-0.2,0.15]){
+        ctx.fillRect(sx*s-s*0.03,-s*0.35,s*0.06,s*0.7);
+      }
+    }
+    ctx.restore();
+  }
+
+  // Blue tang mark
+  if(f.species.mark){
+    ctx.save();
+    // Re-draw body clip
+    ctx.beginPath();
+    ctx.ellipse(0,0,s*0.7,s*0.3,0,0,Math.PI*2);
+    ctx.clip();
+    ctx.beginPath();
+    ctx.moveTo(s*0.1,-s*0.3);
+    ctx.quadraticCurveTo(-s*0.05,0,s*0.1,s*0.3);
+    ctx.lineWidth=s*0.06;
+    ctx.strokeStyle=f.species.stripeColor;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Dorsal fin
+  ctx.save();
+  ctx.beginPath();
+  if(f.species.flowingFins){
+    ctx.moveTo(-s*0.3,-s*0.25);
+    ctx.bezierCurveTo(-s*0.1,-s*0.9,s*0.2,-s*0.8+finWave*s*0.1,s*0.4,-s*0.2);
+  } else if(f.species.tall){
+    ctx.moveTo(-s*0.2,-s*0.6);
+    ctx.quadraticCurveTo(0,-s*1.0+finWave*s*0.1,s*0.2,-s*0.6);
+  } else {
+    ctx.moveTo(-s*0.2,-s*0.25);
+    ctx.quadraticCurveTo(0,-s*0.5+finWave*s*0.1,s*0.3,-s*0.2);
+  }
+  ctx.fillStyle=f.species.finColor;
+  ctx.globalAlpha=0.8;
+  ctx.fill();
+  ctx.globalAlpha=1;
+  ctx.restore();
+
+  // Pectoral fin
+  ctx.save();
+  ctx.translate(s*0.1,s*0.15);
+  ctx.rotate(finWave*0.5);
+  ctx.beginPath();
+  ctx.ellipse(0,s*0.1,s*0.15,s*0.08,0.3,0,Math.PI*2);
+  ctx.fillStyle=f.species.finColor;
+  ctx.globalAlpha=0.6;
+  ctx.fill();
+  ctx.globalAlpha=1;
+  ctx.restore();
+
+  // Eye
+  ctx.beginPath();
+  ctx.arc(s*0.35,-s*0.05,s*0.08,0,Math.PI*2);
+  ctx.fillStyle='#111';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(s*0.37,-s*0.06,s*0.03,0,Math.PI*2);
+  ctx.fillStyle='#fff';
+  ctx.fill();
+
+  ctx.shadowBlur=0;
+  ctx.restore();
+}
+
+// --- Drawing ---
+function drawBackground(){
+  // Water gradient
+  const grad=ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'#0a3d5c');
+  grad.addColorStop(0.3,'#0d4f6e');
+  grad.addColorStop(0.7,'#0b3a54');
+  grad.addColorStop(1,'#061e2f');
+  ctx.fillStyle=grad;
+  ctx.fillRect(0,0,W,H);
+
+  // Light rays from top
+  ctx.save();
+  for(let i=0;i<5;i++){
+    const x=W*0.15+i*W*0.18+Math.sin(time*0.003+i)*20;
+    const grad2=ctx.createLinearGradient(x,0,x+60,H*0.8);
+    grad2.addColorStop(0,'rgba(120,200,220,0.06)');
+    grad2.addColorStop(1,'rgba(120,200,220,0)');
+    ctx.fillStyle=grad2;
+    ctx.beginPath();
+    ctx.moveTo(x-20,0);
+    ctx.lineTo(x+80,0);
+    ctx.lineTo(x+120+Math.sin(time*0.002+i*2)*30,H*0.8);
+    ctx.lineTo(x-60+Math.sin(time*0.002+i*2)*30,H*0.8);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawCaustics(){
+  ctx.save();
+  for(const c of caustics){
+    const x=c.x+Math.sin(time*0.005*c.speed+c.phase)*40;
+    const y=c.y+Math.cos(time*0.004*c.speed+c.phase)*20;
+    const scaleX=1+Math.sin(time*0.006+c.phase)*0.3;
+    const scaleY=1+Math.cos(time*0.007+c.phase)*0.2;
+    ctx.beginPath();
+    ctx.ellipse(x,y,c.rx*scaleX,c.ry*scaleY,Math.sin(time*0.002+c.phase)*0.3,0,Math.PI*2);
+    ctx.fillStyle=`rgba(140,220,200,${c.alpha*(0.7+Math.sin(time*0.01+c.phase)*0.3)})`;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawSand(){
+  const sandH=55;
+  const grad=ctx.createLinearGradient(0,H-sandH,0,H);
+  grad.addColorStop(0,'#5a4a30');
+  grad.addColorStop(0.3,'#6b5b3a');
+  grad.addColorStop(1,'#4a3c28');
+  ctx.fillStyle=grad;
+  ctx.beginPath();
+  ctx.moveTo(0,H);
+  // Slightly wavy sand surface
+  for(let x=0;x<=W;x+=20){
+    ctx.lineTo(x,H-sandH+Math.sin(x*0.02+1)*4+Math.sin(x*0.05)*2);
+  }
+  ctx.lineTo(W,H);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawPebbles(){
+  for(const p of pebbles){
+    ctx.save();
+    ctx.translate(p.x,p.y);
+    ctx.rotate(p.rot);
+    ctx.beginPath();
+    ctx.ellipse(0,0,p.rx,p.ry,0,0,Math.PI*2);
+    ctx.fillStyle=p.color;
+    ctx.fill();
+    // Highlight
+    ctx.beginPath();
+    ctx.ellipse(-p.rx*0.2,-p.ry*0.2,p.rx*0.4,p.ry*0.3,0,0,Math.PI*2);
+    ctx.fillStyle='rgba(255,255,255,0.08)';
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawPlants(){
+  for(const plant of plants){
+    ctx.save();
+    ctx.translate(plant.x,H-50);
+    ctx.lineCap='round';
+
+    let px=0,py=0;
+    for(let i=0;i<plant.segments;i++){
+      const t=i/plant.segments;
+      const sway=Math.sin(time*0.015+plant.phase+i*0.5)*12*t;
+      const nx=px+sway*0.3;
+      const ny=py-plant.segLen;
+      const width=plant.width*(1-t*0.7);
+      const lightness=plant.light+t*10;
+      ctx.beginPath();
+      ctx.moveTo(px,py);
+      ctx.quadraticCurveTo(px+sway*0.15,(py+ny)/2,nx,ny);
+      ctx.strokeStyle=`hsl(${plant.hue},${plant.sat}%,${lightness}%)`;
+      ctx.lineWidth=width;
+      ctx.stroke();
+
+      // Leaf
+      if(i>1&&i%2===0){
+        ctx.save();
+        ctx.translate(nx,ny);
+        const leafDir=(i%4===0)?1:-1;
+        ctx.rotate(leafDir*0.5+Math.sin(time*0.01+plant.phase+i)*0.15);
+        ctx.beginPath();
+        ctx.ellipse(leafDir*8,0,12,4,0,0,Math.PI*2);
+        ctx.fillStyle=`hsla(${plant.hue+10},${plant.sat+10}%,${lightness+5}%,0.7)`;
+        ctx.fill();
+        ctx.restore();
+      }
+
+      px=nx;
+      py=ny;
+    }
+    ctx.restore();
+  }
+}
+
+function drawBubbles(){
+  for(const b of bubbles){
+    const x=b.x+Math.sin(time*0.03+b.wobble)*b.wobbleAmp*15;
+    b.y-=b.speed*0.5;
+    b.x+=Math.sin(time*0.02+b.wobble)*0.05;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x,b.y,b.r,0,Math.PI*2);
+    ctx.strokeStyle=`rgba(180,230,255,${b.alpha})`;
+    ctx.lineWidth=0.8;
+    ctx.stroke();
+    // Highlight
+    ctx.beginPath();
+    ctx.arc(x-b.r*0.3,b.y-b.r*0.3,b.r*0.3,0,Math.PI*2);
+    ctx.fillStyle=`rgba(220,245,255,${b.alpha*0.6})`;
+    ctx.fill();
+    ctx.restore();
+  }
+  // Remove off-screen bubbles
+  bubbles=bubbles.filter(b=>b.y>-10);
+  // Spawn new bubbles
+  if(Math.random()<0.08) spawnBubble();
+}
+
+function drawAerator(){
+  const ax=W*0.5,ay=H-48;
+  // Small stone
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(ax,ay,12,6,0,0,Math.PI*2);
+  ctx.fillStyle='#4a4a4a';
+  ctx.fill();
+  ctx.restore();
+  // Spawn bubbles from aerator
+  if(Math.random()<0.15){
+    bubbles.push({
+      x:ax+rand(-8,8),y:ay-5,
+      r:rand(1,3.5),speed:rand(0.5,1.0),
+      wobble:rand(0,Math.PI*2),wobbleAmp:rand(0.5,2),alpha:rand(0.3,0.6)
+    });
+  }
+}
+
+function drawSurface(){
+  // Wavy water surface with slight reflection
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(0,0);
+  for(let x=0;x<=W;x+=8){
+    const y=8+Math.sin(x*0.02+time*0.02)*3+Math.sin(x*0.035+time*0.015)*2;
+    ctx.lineTo(x,y);
+  }
+  ctx.lineTo(W,0);
+  ctx.closePath();
+  ctx.fillStyle='rgba(100,180,200,0.15)';
+  ctx.fill();
+
+  // Surface shimmer line
+  ctx.beginPath();
+  for(let x=0;x<=W;x+=4){
+    const y=8+Math.sin(x*0.02+time*0.02)*3+Math.sin(x*0.035+time*0.015)*2;
+    if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+  }
+  ctx.strokeStyle='rgba(180,230,240,0.2)';
+  ctx.lineWidth=1.5;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawVignette(){
+  // Subtle vignette for depth
+  const grad=ctx.createRadialGradient(W/2,H/2,W*0.3,W/2,H/2,W*0.8);
+  grad.addColorStop(0,'rgba(0,0,0,0)');
+  grad.addColorStop(1,'rgba(0,10,20,0.4)');
+  ctx.fillStyle=grad;
+  ctx.fillRect(0,0,W,H);
+}
+
+// --- Main Loop ---
+let lastTime=0;
+function animate(ts){
+  const dt=Math.min(ts-lastTime,50)||16;
+  lastTime=ts;
+  time+=dt;
+
+  ctx.clearRect(0,0,W,H);
+
+  drawBackground();
+  drawCaustics();
+  drawSand();
+  drawPebbles();
+  drawPlants();
+  drawAerator();
+
+  // Sort fish by size for depth (smaller = further away)
+  const sortedFish=[...fishes].sort((a,b)=>a.size-b.size);
+  for(const f of sortedFish){
+    updateFish(f,dt);
+    drawFish(f);
+  }
+
+  drawBubbles();
+  drawSurface();
+  drawVignette();
+
+  requestAnimationFrame(animate);
+}
+
+// --- Init ---
+function init(){
+  initPebbles();
+  initPlants();
+  initCaustics();
+  initFish();
+  // Pre-spawn some bubbles
+  for(let i=0;i<15;i++) spawnBubble();
+}
+
+init();
+window.addEventListener('resize',()=>{
+  resize();
+  initPebbles();
+  initPlants();
+  initCaustics();
+});
+
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
